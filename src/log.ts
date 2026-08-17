@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   LEAD_KEY,
@@ -43,25 +43,54 @@ export async function withTaskLock<T>(key: string, operation: () => Promise<T>):
   }
 }
 
-/** Sanitize a task name into a stable directory id. */
+/** Slug of a task name: unicode letters/digits kept (CJK included). */
 export function sanitizeTaskId(name: string): string {
-  const cleaned = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const cleaned = name.replace(/[^\p{Letter}\p{Number}]+/gu, '-').replace(/^-+|-+$/g, '')
   return cleaned === '' ? 'task' : cleaned
 }
 
-function taskDir(stateRoot: string, taskId: string): string {
-  return join(stateRoot, taskId)
+/**
+ * Mint a unique, chronologically-sortable task id:
+ * `YYYYMMDD-HHmmss-<slug>` (local time). The stamp guarantees uniqueness
+ * across same-named tasks and makes `tasks/` an ordered task list.
+ */
+export function mintTaskId(name: string, at: Date): string {
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0')
+  const stamp = `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}`
+    + `-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`
+  return `${stamp}-${sanitizeTaskId(name)}`
 }
 
-function logPath(stateRoot: string, taskId: string): string {
-  return join(taskDir(stateRoot, taskId), 'log.jsonl')
+/** Task-list directory (storage v2): `<stateRoot>/tasks/<taskId>/`. */
+function taskDir(stateRoot: string, taskId: string): string {
+  return join(stateRoot, 'tasks', taskId)
+}
+
+/**
+ * Resolve where a task actually lives: v2 `tasks/<id>` first, then the
+ * legacy v1 flat `<stateRoot>/<id>` (pre-redesign tasks keep working).
+ * Missing tasks resolve to the v2 location (creation target).
+ */
+async function resolveTaskDir(stateRoot: string, taskId: string): Promise<string> {
+  const v2 = taskDir(stateRoot, taskId)
+  try {
+    await readFile(join(v2, 'log.jsonl'), 'utf8')
+    return v2
+  } catch { /* fall through */ }
+  const legacy = join(stateRoot, taskId)
+  try {
+    await readFile(join(legacy, 'log.jsonl'), 'utf8')
+    return legacy
+  } catch {
+    return v2
+  }
 }
 
 /** Read and parse the raw log ([] for a missing file). */
 export async function readLog(stateRoot: string, taskId: string): Promise<LogLine[]> {
   let raw: string
   try {
-    raw = await readFile(logPath(stateRoot, taskId), 'utf8')
+    raw = await readFile(join(await resolveTaskDir(stateRoot, taskId), 'log.jsonl'), 'utf8')
   } catch (error: unknown) {
     if (error instanceof Error && 'code' in error
       && (error as NodeJS.ErrnoException).code === 'ENOENT') return []
@@ -263,14 +292,24 @@ export async function readState(stateRoot: string, taskId: string): Promise<Team
   return project(lines)
 }
 
-/** List every task id under the state root. */
+/** List every task id: the v2 `tasks/` list plus legacy v1 flat dirs. */
 export async function listTaskIds(stateRoot: string): Promise<string[]> {
+  const ids: string[] = []
+  try {
+    const entries = await readdir(join(stateRoot, 'tasks'), { withFileTypes: true })
+    ids.push(...entries.filter(e => e.isDirectory()).map(e => e.name))
+  } catch { /* no v2 list yet */ }
   try {
     const entries = await readdir(stateRoot, { withFileTypes: true })
-    return entries.filter(e => e.isDirectory()).map(e => e.name)
-  } catch {
-    return []
-  }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === 'tasks' || entry.name === 'archive') continue
+      try {
+        await readFile(join(stateRoot, entry.name, 'log.jsonl'), 'utf8')
+        if (!ids.includes(entry.name)) ids.push(entry.name)
+      } catch { /* not a task dir */ }
+    }
+  } catch { /* no state root yet */ }
+  return ids.sort()
 }
 
 /**
@@ -368,12 +407,47 @@ export async function mutateTask(
       appended.push(line)
     }
     if (appended.length > 0) {
-      await mkdir(taskDir(stateRoot, taskId), { recursive: true })
+      const dir = await resolveTaskDir(stateRoot, taskId)
+      await mkdir(dir, { recursive: true })
       const payload = appended.map(line => `${JSON.stringify(line)}\n`).join('')
-      await appendFile(logPath(stateRoot, taskId), payload, 'utf8')
+      await appendFile(join(dir, 'log.jsonl'), payload, 'utf8')
+      await writeSnapshot(dir, state)
+      await mirrorInbox(dir, appended)
     }
     return { state, appended }
   })
+}
+
+/**
+ * DERIVED VIEWS (human diagnostics; the log stays the only truth):
+ * `snapshot.json` — the latest projection (current team situation, nodes,
+ * seq), rewritten after every mutation via tmp+rename so a reader never
+ * sees a torn file. `inbox/<recipient>.jsonl` — a write-through mailbox
+ * mirror: one line per message on send, one `{delivered}` mark line.
+ */
+async function writeSnapshot(dir: string, state: TeamTaskState): Promise<void> {
+  try {
+    const tmp = join(dir, '.snapshot.json.tmp')
+    await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+    await rename(tmp, join(dir, 'snapshot.json'))
+  } catch { /* diagnostics only — never fail the mutation */ }
+}
+
+async function mirrorInbox(dir: string, appended: readonly LogLine[]): Promise<void> {
+  for (const line of appended) {
+    try {
+      if (line.type === 'message_sent') {
+        const inbox = join(dir, 'inbox')
+        await mkdir(inbox, { recursive: true })
+        const key = line.message.to.replace(/[^\p{Letter}\p{Number}_-]+/gu, '_')
+        await appendFile(join(inbox, `${key}.jsonl`), `${JSON.stringify(line.message)}\n`, 'utf8')
+      } else if (line.type === 'message_delivered') {
+        const inbox = join(dir, 'inbox')
+        await mkdir(inbox, { recursive: true })
+        await appendFile(join(inbox, '.delivered.jsonl'), `${JSON.stringify({ delivered: line.id, ts: line.ts })}\n`, 'utf8')
+      }
+    } catch { /* diagnostics only */ }
+  }
 }
 
 // ---------------------------------------------------------------------------

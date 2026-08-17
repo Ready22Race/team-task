@@ -20,9 +20,9 @@ import {
   createMessage,
   identityOf,
   listTaskIds,
+  mintTaskId,
   mutateTask,
   readState,
-  sanitizeTaskId,
   undeliveredTo,
   unsatisfiedDependencies,
 } from './log.ts'
@@ -223,14 +223,14 @@ export function registerTeamTaskTools(
       if (existing !== undefined) {
         throw new Error(`this session already participates in active task "${existing.id}" — finish it first`)
       }
-      const taskId = sanitizeTaskId(args.name)
+      const taskId = mintTaskId(args.name, new Date())
       const specs = ((args.nodes ?? []) as unknown as RawNodeArg[]).map(nodeSpecFromArgs)
       await mutateTask(stateRoot, taskId, () => [
         { type: 'task_created', id: taskId, name: args.name, goal: args.goal, leadSessionId: lead.id },
         ...specs.map(node => ({ type: 'node_planned', node }) satisfies TeamTaskEvent),
       ])
       scheduler.trackWorkspace(workspace)
-      return { task_id: taskId, state_dir: `${config.stateDir}/${taskId}`, nodes: specs.length }
+      return { task_id: taskId, state_dir: `${config.stateDir}/tasks/${taskId}`, nodes: specs.length }
     },
   }))
 

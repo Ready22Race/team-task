@@ -50,7 +50,7 @@ Before your first node, call ${playbookHint} to load your working protocol. Non-
 1. Assignments carry a node key and a fence number. Include that exact fence in every team_task_complete call; a stale-fence rejection means the node was reassigned — stop that work immediately.
 2. When you finish a node, call team_task_complete (fence, output) BEFORE ending your turn. If you end your turn without it, the runtime settles your run as unclaimed and the lead reviews whatever is on disk.
 3. Message the lead or teammates with team_task_send; check your situation with team_task_status.
-4. ${stateDir}/${state.id}/ is read-only diagnostics; mutate task state only through team_task_* tools.
+4. ${stateDir}/tasks/${state.id}/ is read-only diagnostics (log.jsonl = truth); mutate task state only through team_task_* tools.
 5. You are a worker: never plan, dispatch, review, or finish the task.`
 }
 
@@ -79,7 +79,7 @@ Fence: ${node.fence} (attempt ${node.attempts})${effortLine}
 
 Work only this node this turn. When done, call team_task_complete with node_key=${node.key}, fence=${node.fence}, and a self-contained output. Then report anything the lead must know via team_task_send (to=${LEAD_KEY}) and end your turn.
 
-State policy: ${stateDir}/${state.id}/ is read-only diagnostics; mutate task state only through team_task_* tools.`
+State policy: ${stateDir}/tasks/${state.id}/ is read-only diagnostics; mutate task state only through team_task_* tools.`
 }
 
 /**

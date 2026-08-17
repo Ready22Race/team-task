@@ -68,9 +68,24 @@ Then ask:
 | `team_task_status` | anyone | Snapshot: nodes, runs, fences, member activity, attention list, your inbox |
 | `team_task_finish` | lead | Close and archive (full event history and every run retained) |
 
-State lives at `<workspace>/.team-task/<taskId>/log.jsonl` — an append-only
-event log; every surface (tools, board routes, offline verify) folds the same
-events.
+## Storage
+
+```
+<workspace>/.team-task/
+└── tasks/                                  # the task list, chronologically sorted
+    └── 20260816-2145-竞品分析示例任务/       # id = created-at stamp + name slug (CJK kept)
+        ├── log.jsonl        # append-only event log — the ONLY truth
+        ├── snapshot.json    # latest projection (team situation + nodes + seq); derived
+        └── inbox/
+            ├── lead.jsonl   # per-recipient mailbox mirror; derived, human-readable
+            └── <member>.jsonl
+```
+
+`log.jsonl` is the single source of truth; every surface (tools, board
+routes, offline verify) folds the same events, and any historical "team
+situation at time T" is a replay of the log prefix. `snapshot.json` and
+`inbox/` are write-through **derived views** for humans — safe to read,
+never written by hand, and never read back by the code.
 
 ## Configuration
 
