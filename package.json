@@ -1,7 +1,7 @@
 {
   "name": "@ready22race/dsh-team-task",
   "version": "0.1.0",
-  "description": "team-task for DeepSeek Harness: long-horizon multi-agent tasks \u2014 a lead plans a reviewed DAG, durable members execute, an event log is the single truth, and a resident reconciler survives crashes and restarts.",
+  "description": "team-task for DeepSeek Harness: long-horizon multi-agent tasks — a lead plans a reviewed DAG, durable members execute, an event log is the single truth, and a resident reconciler survives crashes and restarts.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -29,13 +29,13 @@
     "name": "Ready22Race",
     "url": "https://github.com/Ready22Race"
   },
-  "homepage": "https://github.com/Ready22Race/team-task#readme",
+  "homepage": "https://github.com/Ready22Race/dsh-team-task#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Ready22Race/team-task.git"
+    "url": "git+https://github.com/Ready22Race/dsh-team-task.git"
   },
   "bugs": {
-    "url": "https://github.com/Ready22Race/team-task/issues"
+    "url": "https://github.com/Ready22Race/dsh-team-task/issues"
   },
   "keywords": [
     "dsh",
@@ -156,5 +156,9 @@
       "@deepseek-ai/dsh-client-ui-conversation"
     ],
     "platform": "web"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
