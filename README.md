@@ -24,42 +24,55 @@ ways. team-task's answers, in one table:
 Full rationale, axioms, state machine, and the event-log-native board design:
 [docs/design.md](docs/design.md).
 
-## Install
+## Quick start
 
-Requires a working dsh installation (`npx @deepseek-ai/dsh web`; Node
-`^22.19 || >=24`).
+Prerequisites: Node `^22.19 || >=24` (Node 23 fails to boot dsh).
 
-From npm:
+**1. Install dsh** (skip if you have it):
 
 ```sh
+npm i -g @deepseek-ai/dsh
+```
+
+**2. Add the plugin** — pick one:
+
+```sh
+# npm (recommended)
 dsh plugin --profile web add @ready22race/dsh-team-task
-```
 
-Or straight from GitHub (the repo ships its build output — no build step):
-
-```sh
+# straight from GitHub (the repo ships its build output — no build step)
 dsh plugin --profile web add github:Ready22Race/dsh-team-task
-```
 
-From source:
-
-```sh
+# from source (contributors; installs as a link to your checkout)
 git clone https://github.com/Ready22Race/dsh-team-task.git
 cd dsh-team-task && pnpm install && pnpm build
 dsh plugin --profile web add .
 ```
 
-Validate and restart:
+**3. Verify the composition** (expect an `id: team-task` row):
 
 ```sh
-dsh --profile web --dump-config   # expect an `id: team-task` row
+dsh --profile web --dump-config
+```
+
+**4. Start dsh** (a restart is required after `plugin add` — the bundle
+list is cached in-process):
+
+```sh
 dsh web
 ```
 
-Then ask:
+**5. First run** — open http://127.0.0.1:3080, set a model key
+(Settings → Models) and pick a workspace, then send:
 
-> Use team-task to research X across three angles, review each result, and
-> merge them into one report.
+> 用 team-task 跑一个长任务：先加载 lead playbook，规划一张带依赖和
+> 预指派（assignee）的节点图，逐节点评审，最后合并交付。
+
+You should see: a task card in the conversation, the board floater on the
+right (segments / filters / node cards / inspector), and
+`<workspace>/.team-task/tasks/<id>/log.jsonl` on disk. Pre-assigned nodes
+auto-flow when their dependencies approve; everything else waits for your
+explicit dispatch or review.
 
 ## Tools
 
@@ -114,6 +127,25 @@ never written by hand, and never read back by the code.
 pnpm install
 pnpm build
 pnpm verify   # offline: fences, review gate, rework, settlement, replay determinism
+```
+
+### Releasing (maintainers)
+
+The repo commits `lib/` so `github:` installs need no build step — always
+publish from a clean `pnpm build` (the css-module hashes are repo-relative,
+so the output is machine-independent).
+
+```sh
+npm login                      # account must own the @ready22race scope
+npm publish --otp=<2FA code>   # prepublishOnly runs build + verify first
+```
+
+With 2FA enabled, `npm publish` alone returns 403 — pass `--otp`, or create
+a granular access token with "bypass 2FA" scoped to this package and put it
+in `~/.npmrc` for tokenized publishes. After publishing, tag the release:
+
+```sh
+gh release create vX.Y.Z --title "dsh-team-task X.Y.Z" --generate-notes
 ```
 
 ## Status & roadmap
