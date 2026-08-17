@@ -237,6 +237,19 @@ export function Panel({ sessionsList, openSession }: {
   }, [task, autoOpenedFor])
 
   if (task === undefined || mode === 'hidden') return null
+
+  /** Switch filter; drop a selection the new filter no longer shows,
+   * so the inspector never displays a node absent from the list. */
+  const applyFilter = (next: Filter): void => {
+    setFilter(next)
+    if (selectedKey !== undefined) {
+      const node = task.state.nodes.find(n => n.key === selectedKey)
+      const visible = node !== undefined
+        && (next === 'all' || (next === 'active' ? isActive(node) : isIssue(node)))
+      if (!visible) setSelectedKey(undefined)
+    }
+  }
+
   const progress = progressOf(task.state)
   const anyRunning = Object.values(task.activity).includes('running')
   const members = task.state.members.filter(m => m.retired !== true)
@@ -292,13 +305,13 @@ export function Panel({ sessionsList, openSession }: {
         </header>
 
         <div className={css.tools}>
-          <button type="button" className={`${css.filter} ${filter === 'all' ? css.filterOn : ''}`} onClick={() => setFilter('all')}>
+          <button type="button" className={`${css.filter} ${filter === 'all' ? css.filterOn : ''}`} onClick={() => applyFilter('all')}>
             All<span className={css.count}>{nodes.length}</span>
           </button>
-          <button type="button" className={`${css.filter} ${filter === 'active' ? css.filterOn : ''}`} onClick={() => setFilter('active')}>
+          <button type="button" className={`${css.filter} ${filter === 'active' ? css.filterOn : ''}`} onClick={() => applyFilter('active')}>
             Active<span className={css.count}>{activeCount}</span>
           </button>
-          <button type="button" className={`${css.filter} ${filter === 'issues' ? css.filterOn : ''}`} onClick={() => setFilter('issues')}>
+          <button type="button" className={`${css.filter} ${filter === 'issues' ? css.filterOn : ''}`} onClick={() => applyFilter('issues')}>
             Issues<span className={css.count}>{issueCount}</span>
           </button>
           <span className={css.toolSpacer} />
