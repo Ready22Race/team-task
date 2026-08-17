@@ -1,0 +1,19 @@
+# team-task bundle patch: mounts the plugin row into the host composition of
+# a dsh profile. The plugin registers the `team_task_*` tools, a tiny
+# system-prompt trigger (the full protocol loads on demand through
+# `team_task_playbook`), the idle-edge/reconciler scheduler, and the board
+# data routes.
+#
+# Install: `dsh plugin --profile <name> add <this package>` (npm or a local
+# path), then restart the profile.
+- insert:
+    - id: team-task
+      # Node-resolvable package name — must stay in sync with package.json.
+      name: '@ready22race/dsh-team-task'
+      config:
+        # Task state lives under `<workspace>/<stateDir>/<taskId>/log.jsonl`.
+        stateDir: .team-task
+        # Subagent runtime backend used to spawn members ('spawn' or 'fork').
+        memberProvider: spawn
+        # Resident reconciler sweep interval (ms).
+        reconcileIntervalMs: 30000
