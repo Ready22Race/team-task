@@ -26,10 +26,13 @@ Full rationale, axioms, state machine, and the event-log-native board design:
 
 ## Install
 
-Requires a working dsh installation (`npx @deepseek-ai/dsh web`).
+Requires a working dsh installation (`npx @deepseek-ai/dsh web`; Node
+`^22.19 || >=24`).
+
+Straight from GitHub (the repo ships its build output — no build step):
 
 ```sh
-dsh plugin --profile web add @ready22race/dsh-team-task
+dsh plugin --profile web add github:Ready22Race/team-task
 ```
 
 From source:
