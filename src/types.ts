@@ -57,8 +57,17 @@ export interface PlanNode {
   fence: number
   /** Count of dispatches (== number of runs started). */
   attempts: number
-  /** Latest claimed/settled output. */
+  /** Latest claimed/settled output (display; see claimedFence for validity). */
   output?: string
+  /**
+   * Fence of the attempt that claimed `output`. A claim is only CURRENT when
+   * `claimedFence === fence` — a reworked node keeps the old output for
+   * display, but settlement must never mistake it for the new attempt's
+   * completion (review P1-1).
+   */
+  claimedFence?: number
+  /** Per-dispatch effort hint (carried into the assignment prompt). */
+  effortHint?: string
   /** Lead feedback from the latest `rework`; the next dispatch carries it. */
   feedback?: string
   runs: RunRecord[]

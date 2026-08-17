@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { transform } from 'lightningcss'
 import { defineConfig, type UserConfig } from 'tsdown'
@@ -98,8 +98,12 @@ const config: UserConfig = {
       const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
       this.addWatchFile(fileId)
       const source = readFileSync(fileId)
+      // Repo-relative filename: the css-module class hash must not embed the
+      // maintainer's absolute checkout path, or committed lib/client.js
+      // diffs on every machine (review P3-6).
+      const repoRoot = dirname(fileURLToPath(import.meta.url))
       const { code, exports: cssExports } = transform({
-        filename: fileId,
+        filename: relative(repoRoot, fileId).split(sep).join('/'),
         code: source,
         cssModules: { pattern: '[hash]_[local]' },
         minify: true,

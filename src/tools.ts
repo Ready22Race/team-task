@@ -263,8 +263,8 @@ export function registerTeamTaskTools(
       role: { type: 'string', required: true, description: 'Role description, e.g. researcher / engineer / reviewer.' },
       provider: { type: 'string', description: 'Explicit LLM provider route (requires model).' },
       model: { type: 'string', description: 'Explicit model id.' },
-      effort: { type: 'string', description: 'Reasoning-effort hint for this member.' },
-      playbook: { type: 'string', description: 'Role playbook name the member should load.' },
+      effort: { type: 'string', description: 'Effort guidance injected into the member persona and assignments (prompt-level, not a model parameter).' },
+      playbook: { type: 'string', enum: ['lead', 'member', 'recovery'], description: 'Extra packaged playbook the member should load (custom role playbooks are not supported yet).' },
     },
     output: {
       schema: {
@@ -291,6 +291,9 @@ export function registerTeamTaskTools(
       }
       if (args.provider !== undefined && args.model === undefined) {
         throw new Error('an explicit provider requires an explicit model')
+      }
+      if (args.playbook !== undefined && !PLAYBOOKS.has(args.playbook)) {
+        throw new Error(`unknown playbook "${args.playbook}" — packaged playbooks: lead, member, recovery`)
       }
       const profile = {
         name: args.name,

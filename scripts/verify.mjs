@@ -7,8 +7,9 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { appendFile, readFile } from 'node:fs/promises'
 import {
-  mutateTask, readState, project, readLog,
+  mutateTask, readState, project, readLog, hasCurrentClaim,
   readyNodes, unsatisfiedDependencies, openNodeOf, undeliveredTo, identityOf, createMessage,
 } from '../lib/log.js'
 
@@ -95,6 +96,7 @@ ok('claimed settle + fast lane approve unlocks dependents')
 await mutateTask(root, T, () => [
   { type: 'node_dispatched', key: 'b', assignee: 'worker', fence: 1 },
   { type: 'run_started', key: 'b', fence: 1, sessionId: 'sess-w' },
+  { type: 'completion_claimed', key: 'b', fence: 1, output: 'analysis v1' },
   { type: 'run_settled', key: 'b', fence: 1, outcome: 'turn_ended', settledBy: 'reconciler', note: 'member was not running' },
 ])
 s = await readState(root, T)
@@ -123,6 +125,17 @@ await expectReject(
   /stale settle fence/, 'stale settle from the reworked attempt rejected',
 )
 
+// review P1-1: attempt 1 claimed, rework, attempt 2 (fence 2) has NOT
+// claimed — the old output must not count as the new attempt's completion.
+{
+  const nodeB = s.nodes.find(n => n.key === 'b')
+  assert.equal(nodeB.output, 'analysis v1', 'old output retained for display')
+  assert.equal(nodeB.claimedFence, 1, 'claim belongs to fence 1')
+  assert.equal(nodeB.fence, 2, 'current attempt is fence 2')
+  assert.equal(hasCurrentClaim(nodeB), false, 'stale claim is NOT a current claim')
+  ok('P1-1: stale output cannot settle the reworked attempt as completed')
+}
+
 await mutateTask(root, T, () => [
   { type: 'completion_claimed', key: 'b', fence: 2, output: 'analysis v2 with sources' },
   { type: 'run_settled', key: 'b', fence: 2, outcome: 'completed', settledBy: 'idle-edge' },
@@ -144,6 +157,46 @@ assert.deepEqual(readyNodes(s).filter(n => n.assignee === 'worker').map(n => n.k
   'pre-assigned ready node is auto-flow eligible')
 await mutateTask(root, T, () => [{ type: 'node_cancelled', key: 'r1' }])
 ok('pre-assigned node: plan is the routing table')
+
+// --- plan graph invariants (review P2-4) ------------------------------------
+await expectReject(
+  mutateTask(root, T, () => [{ type: 'node_planned', node: { key: 'g1', title: 'self', dependsOn: ['g1'] } }]),
+  /depends on itself/, 'self-dependency rejected',
+)
+await expectReject(
+  mutateTask(root, T, () => [{ type: 'node_planned', node: { key: 'g2', title: 'ghost', dependsOn: ['nope'] } }]),
+  /unknown node/, 'missing dependency rejected',
+)
+await expectReject(
+  mutateTask(root, T, () => [
+    { type: 'node_planned', node: { key: 'g3', title: 'x', dependsOn: ['g4'] } },
+    { type: 'node_planned', node: { key: 'g4', title: 'y', dependsOn: ['g3'] } },
+  ]),
+  /cycle/, 'dependency cycle rejected (whole batch, nothing written)',
+)
+s = await readState(root, T)
+assert.equal(s.nodes.some(n => n.key.startsWith('g')), false, 'rejected graph events left no trace')
+ok('P2-4: graph invariants — existence, self-edge, cycle')
+
+// --- torn tail recovery (review P1-2) ---------------------------------------
+{
+  const T2 = 'torn'
+  await mutateTask(root, T2, () => [
+    { type: 'task_created', id: T2, name: 'Torn', goal: 'g', leadSessionId: 'lead-2' },
+  ])
+  const logFile = `${root}/tasks/${T2}/log.jsonl`
+  await appendFile(logFile, '{"seq":9,"type":"node_pla', 'utf8')   // crash mid-write
+  const after = await mutateTask(root, T2, () => [
+    { type: 'node_planned', node: { key: 'ok', title: 'post-crash node' } },
+  ])
+  assert.equal(after.state.nodes.length, 1, 'append after torn tail lands cleanly')
+  const rawLines = (await readFile(logFile, 'utf8')).trim().split('\n')
+  for (const line of rawLines) JSON.parse(line)   // every line parses
+  assert.equal(rawLines.length, 2, 'torn fragment truncated, not concatenated')
+  const replayT2 = project(await readLog(root, T2))
+  assert.equal(replayT2.nodes[0].key, 'ok')
+  ok('P1-2: torn tail truncated under the lock; log stays parseable')
+}
 
 // --- durable messages --------------------------------------------------------
 const msg = createMessage('worker', 'lead', 'b is done, see analysis v2')

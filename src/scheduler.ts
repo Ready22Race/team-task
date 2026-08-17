@@ -16,6 +16,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { join } from 'node:path'
 import {
   createMessage,
+  hasCurrentClaim,
   identityOf,
   listTaskIds,
   mutateTask,
@@ -23,6 +24,7 @@ import {
   readState,
   readyNodes,
   undeliveredTo,
+  withTaskLock,
 } from './log.ts'
 import {
   assignmentPrompt,
@@ -69,7 +71,7 @@ function settleEvents(
   settledBy: string,
   note?: string,
 ): TeamTaskEvent[] {
-  const claimed = node.output !== undefined
+  const claimed = hasCurrentClaim(node)
   const events: TeamTaskEvent[] = [{
     type: 'run_settled',
     key: node.key,
@@ -110,14 +112,13 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
     }
   }
 
-  const runtime: TaskScheduler = {
-    trackWorkspace(workspace) {
-      workspaces.add(workspace)
-    },
-
-    async kickTask(workspace, taskId, suppliedLead) {
-      workspaces.add(workspace)
-      const stateRoot = join(workspace, config.stateDir)
+  /** The kick body; runs only under the per-task kick mutex below. */
+  const kickLocked = async (
+    workspace: string,
+    stateRoot: string,
+    taskId: string,
+    suppliedLead?: Agent,
+  ): Promise<void> => {
       let state = await readState(stateRoot, taskId)
       if (state === undefined || state.finishedAt !== undefined) return
       const lead = liveLead(ctx, state.leadSessionId, suppliedLead)
@@ -243,6 +244,26 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
           state = await deliverAssignment({ ...member, sessionId: state.members.find(m => m.name === member.name)?.sessionId ?? member.sessionId }, dispatched) ?? state
         } catch { /* raced */ }
       }
+  }
+
+  const runtime: TaskScheduler = {
+    trackWorkspace(workspace) {
+      workspaces.add(workspace)
+    },
+
+    async kickTask(workspace, taskId, suppliedLead) {
+      workspaces.add(workspace)
+      const stateRoot = join(workspace, config.stateDir)
+      // Serialize kicks per task (review P1-3): spawning a member is an
+      // external side effect that happens BEFORE its member_spawned event
+      // persists; two interleaved kicks could both observe sessionId === ''
+      // and spawn twice — the log validator rejects the second write, but
+      // the orphaned subagent would already exist. One kick at a time.
+      // (Distinct lock namespace from mutateTask's, so nesting is safe.)
+      return withTaskLock(
+        `kick ${stateRoot} ${taskId}`,
+        () => kickLocked(workspace, stateRoot, taskId, suppliedLead),
+      )
     },
   }
 

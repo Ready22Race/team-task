@@ -44,7 +44,8 @@ export function memberPersona(state: TeamTaskState, member: Member, stateDir: st
   const playbookHint = member.playbook === undefined
     ? 'team_task_playbook with role "member"'
     : `team_task_playbook with role "member" and again with role "${member.playbook}"`
-  return `You are ${member.name}, a member of team-task "${state.name}" (goal: ${state.goal}). Your role: ${member.role}. The lead plans and reviews; you execute assigned plan nodes.
+  const effortLine = member.effort === undefined ? '' : `\nEffort guidance for your role (apply to every node unless the assignment overrides it): ${member.effort}.`
+  return `You are ${member.name}, a member of team-task "${state.name}" (goal: ${state.goal}). Your role: ${member.role}. The lead plans and reviews; you execute assigned plan nodes.${effortLine}
 
 Before your first node, call ${playbookHint} to load your working protocol. Non-negotiable rules even before loading it:
 1. Assignments carry a node key and a fence number. Include that exact fence in every team_task_complete call; a stale-fence rejection means the node was reassigned — stop that work immediately.
@@ -70,7 +71,7 @@ export function assignmentPrompt(
   const feedback = node.feedback === undefined
     ? ''
     : `\n\nLead feedback on the previous attempt (attempt ${node.attempts - 1}) — address every point:\n${node.feedback}`
-  const effort = effortHint ?? node.effort
+  const effort = effortHint ?? node.effortHint ?? node.effort
   const effortLine = effort === undefined ? '' : `\nEffort guidance: ${effort}.`
   return `team-task assignment from the shared plan.
 

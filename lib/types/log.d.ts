@@ -21,6 +21,16 @@ export declare function sanitizeTaskId(name: string): string;
 export declare function mintTaskId(name: string, at: Date): string;
 /** Read and parse the raw log ([] for a missing file). */
 export declare function readLog(stateRoot: string, taskId: string): Promise<LogLine[]>;
+/** Strict parse for the MUTATION path (review P1-2): locates the last good
+ * byte so a torn tail can be truncated before appending, and distinguishes
+ * a torn tail (crash mid-write, recoverable) from mid-log corruption
+ * (refuse to append — repair by hand rather than silently fork history). */
+export declare function parseRawLog(raw: string): {
+    lines: LogLine[];
+    goodByteLength: number;
+    tornTail: boolean;
+    corruptLine?: number;
+};
 /** Fold one event into the state (pure; exported for the board/verify). */
 export declare function applyEvent(state: TeamTaskState, line: LogLine): TeamTaskState;
 /** Empty pre-creation state. */
@@ -49,10 +59,16 @@ export interface MutationResult {
 export declare function mutateTask(stateRoot: string, taskId: string, propose: (state: TeamTaskState) => TeamTaskEvent[] | {
     error: string;
 }): Promise<MutationResult>;
+/** Plan-graph invariants: every dependency exists, no self-edges, no cycles. */
+export declare function validatePlanGraph(state: TeamTaskState): string | undefined;
 /** Dependency keys of `node` that have not reached `approved`. */
 export declare function unsatisfiedDependencies(state: TeamTaskState, node: PlanNode): string[];
 /** Pending nodes whose dependencies are all approved. */
 export declare function readyNodes(state: TeamTaskState): PlanNode[];
+/** Whether the node's CURRENT attempt claimed completion (review P1-1):
+ * an output left over from a reworked attempt carries a stale claimedFence
+ * and must never settle the new attempt as completed. */
+export declare function hasCurrentClaim(node: PlanNode): boolean;
 /** The open (dispatched/running) node owned by one member, if any. */
 export declare function openNodeOf(state: TeamTaskState, memberName: string): PlanNode | undefined;
 /** Undelivered messages addressed to one recipient. */
