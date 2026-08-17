@@ -11,6 +11,8 @@ export interface BoardRun {
   readonly fence: number
   readonly memberName: string
   readonly sessionId: string
+  readonly startedAt: number
+  readonly settledAt?: number
   readonly outcome?: string
   readonly settledBy?: string
 }
@@ -52,6 +54,7 @@ export interface BoardState {
   readonly name: string
   readonly goal: string
   readonly leadSessionId: string
+  readonly createdAt: number
   readonly finishedAt?: number
   readonly finishStatus?: string
   readonly members: readonly BoardMember[]

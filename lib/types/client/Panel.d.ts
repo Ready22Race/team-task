@@ -1,12 +1,10 @@
 /**
- * The team-task board floater — event-log-native (design.md §6), themed with
- * the host's `--dsw-alias-*` tokens.
- *
- * Visual structure: header (title · n/m · – · ×) → segmented progress (one
- * segment per plan node, colored by status) → attention (reviews ⚠ / queued
- * mail ✉) → member avatar row → a vertical plan stepper in plan order with
- * a status rail. Modes: board ↔ pill (–) ↔ hidden (×; the conversation
- * card's board button or a new task reopens it).
+ * The team-task board — V3 "right rail card" (approved mockup): run header
+ * with Live chip / elapsed / big fraction, glowing per-node segments,
+ * All·Active·Issues filters, node cards with icon rail + connector, a
+ * click-to-inspect drawer (latest run, output excerpt, rework feedback),
+ * and a footer status bar. Surfaces/text ride the host --dsw-alias-*
+ * tokens; the violet/cyan/amber accents are the panel's identity.
  * @module team-task/client/panel
  */
 import type { SessionId } from '@deepseek-ai/dsh-session/types';
