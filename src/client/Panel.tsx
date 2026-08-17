@@ -1,51 +1,119 @@
 /**
- * The team-task board floater: an event-log-native kanban (design.md §6),
- * themed with the host's `--dsw-alias-*` design tokens.
+ * The team-task board floater — event-log-native (design.md §6), themed with
+ * the host's `--dsw-alias-*` tokens.
  *
- * Three view modes: expanded board, collapsed pill (–), fully hidden (×,
- * reopened by the conversation card's board button or a new task). Polls the
- * host projection; lanes pending / working / review / approved, attention
- * split into reviews (warn) and queued mail (info), member activity dots.
+ * Visual structure: header (title · n/m · – · ×) → segmented progress (one
+ * segment per plan node, colored by status) → attention (reviews ⚠ / queued
+ * mail ✉) → member avatar row → a vertical plan stepper in plan order with
+ * a status rail. Modes: board ↔ pill (–) ↔ hidden (×; the conversation
+ * card's board button or a new task reopens it).
  * @module team-task/client/panel
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import {
-  groupLanes, LANES, progressOf,
-  type BoardNode, type BoardTask, type Lane,
-} from './board-model.ts'
+import { progressOf, type BoardMember, type BoardNode, type BoardTask } from './board-model.ts'
 import css from './Panel.module.css'
 
 /** Window event the conversation card fires to (re)open the board. */
 export const OPEN_BOARD_EVENT = 'team-task:open-board'
-
-const LANE_LABEL: Record<Lane, string> = {
-  pending: 'Pending',
-  working: 'Working',
-  awaiting_review: 'Needs review',
-  approved: 'Approved',
-}
 
 interface SessionListLike {
   subscribe(listener: () => void): () => void
   getSnapshot(): { current?: SessionId | undefined }
 }
 
-function NodeRow({ node }: { node: BoardNode }) {
+/** Stable avatar hue per member name (theme-agnostic accent). */
+function avatarColor(name: string): string {
+  let hash = 0
+  for (let index = 0; index < name.length; index += 1) {
+    hash = ((hash << 5) - hash + name.charCodeAt(index)) | 0
+  }
+  const hue = ((hash % 360) + 360) % 360
+  return `hsl(${hue} 42% 46%)`
+}
+
+function initialOf(name: string): string {
+  const first = [...name.trim()][0]
+  return first === undefined ? '?' : first.toUpperCase()
+}
+
+function segmentClass(node: BoardNode): string {
+  switch (node.status) {
+    case 'approved': return `${css.segment} ${css.segmentApproved}`
+    case 'running':
+    case 'dispatched': return `${css.segment} ${css.segmentRunning}`
+    case 'awaiting_review': return `${css.segment} ${css.segmentReview}`
+    case 'cancelled': return `${css.segment} ${css.segmentCancelled}`
+    default: return css.segment ?? ''
+  }
+}
+
+function railOf(node: BoardNode): { className: string; glyph: string } {
+  switch (node.status) {
+    case 'approved': return { className: `${css.rail} ${css.railApproved}`, glyph: '✓' }
+    case 'running':
+    case 'dispatched': return { className: `${css.rail} ${css.railRunning}`, glyph: '' }
+    case 'awaiting_review': return { className: `${css.rail} ${css.railReview}`, glyph: '!' }
+    case 'cancelled': return { className: `${css.rail} ${css.railCancelled}`, glyph: '×' }
+    default: return { className: `${css.rail} ${css.railPending}`, glyph: '·' }
+  }
+}
+
+function StepRow({ node, members, isLast, openSession }: {
+  node: BoardNode
+  members: readonly BoardMember[]
+  isLast: boolean
+  openSession: (id: SessionId) => void
+}) {
+  const rail = railOf(node)
   const outcome = node.runs.at(-1)?.outcome
-  return (
-    <div className={`${css.node} ${node.status === 'pending' && node.dependsOn.length > 0 ? css.blocked : ''}`}>
-      <span className={css.nodeKey}>{node.key}</span>
-      <span className={css.nodeTitle} title={node.title}>{node.title}</span>
-      {node.assignee !== undefined && <span className={css.badge}>{node.assignee}</span>}
-      {node.attempts > 1 && <span className={css.badgeWarn}>#{node.attempts}</span>}
-      {node.autoApprove && <span className={css.badgeFast}>fast</span>}
-      {node.status === 'awaiting_review' && (
-        <span className={outcome === 'completed' ? css.badgeFast : css.badgeWarn}>
-          {outcome === 'completed' ? 'claimed' : outcome ?? 'settled'}
+  const assignee = node.assignee === undefined
+    ? undefined
+    : members.find(m => m.name === node.assignee)
+  const blocked = node.status === 'pending' && node.dependsOn.length > 0
+  const titleClass = node.status === 'cancelled'
+    ? `${css.nodeTitle} ${css.titleStruck}`
+    : blocked ? `${css.nodeTitle} ${css.titleDim}` : css.nodeTitle
+  const meta: React.ReactNode[] = []
+  if (node.assignee !== undefined) {
+    meta.push(
+      <span
+        key="assignee"
+        className={css.assigneeMini}
+        style={assignee === undefined ? undefined : { cursor: 'pointer' }}
+        onClick={() => { if (assignee !== undefined && assignee.sessionId !== '') openSession(assignee.sessionId as SessionId) }}
+      >
+        <span className={css.miniAvatar} style={{ background: avatarColor(node.assignee) }}>
+          {initialOf(node.assignee)}
         </span>
-      )}
+        {node.assignee}
+      </span>,
+    )
+  }
+  if (node.status === 'awaiting_review') {
+    meta.push(
+      <span key="review" className={outcome === 'completed' ? css.metaOk : css.metaWarn}>
+        {outcome === 'completed' ? 'claimed · review' : 'settled without claim'}
+      </span>,
+    )
+  }
+  if (node.attempts > 1) meta.push(<span key="attempts" className={css.metaWarn}>attempt {node.attempts}</span>)
+  if (node.autoApprove && node.status !== 'approved') meta.push(<span key="fast">fast-lane</span>)
+  if (blocked) meta.push(<span key="deps">waits: {node.dependsOn.join(', ')}</span>)
+  return (
+    <div className={css.step}>
+      <div className={css.railWrap}>
+        <span className={rail.className}>{rail.glyph}</span>
+        <span className={`${css.railLine} ${isLast ? css.railLineHidden : ''}`} />
+      </div>
+      <div className={css.stepBody}>
+        <div className={css.stepTop}>
+          <span className={css.nodeKey}>{node.key}</span>
+          <span className={titleClass} title={node.goal ?? node.title}>{node.title}</span>
+        </div>
+        {meta.length > 0 && <div className={css.stepMeta}>{meta}</div>}
+      </div>
     </div>
   )
 }
@@ -54,64 +122,64 @@ function TaskBoard({ task, openSession }: {
   task: BoardTask
   openSession: (id: SessionId) => void
 }) {
-  const lanes = useMemo(() => groupLanes(task.state.nodes), [task.state.nodes])
   const reviews = task.state.nodes.filter(n => n.status === 'awaiting_review')
   const queuedMail = task.state.messages.filter(m => m.deliveredAt === undefined)
+  const members = task.state.members.filter(m => m.retired !== true)
+  const nodes = task.state.nodes
   return (
     <div className={css.body}>
-      {task.state.goal !== '' && <p className={css.goal}>{task.state.goal}</p>}
       {task.state.finishedAt !== undefined && (
-        <div className={css.finished}>finished: {task.state.finishStatus}</div>
+        <div className={css.finished}>finished · {task.state.finishStatus}</div>
       )}
       {(reviews.length > 0 || queuedMail.length > 0) && (
         <div className={css.attention}>
           {reviews.map(node => (
             <span key={node.key} className={css.attentionReview}>
               <span className={css.attentionIcon}>⚠</span>
-              review {node.key} · {node.runs.at(-1)?.outcome === 'completed' ? 'claimed complete' : 'settled without claim — inspect disk'}
+              review {node.key} · {node.runs.at(-1)?.outcome === 'completed' ? 'claimed complete' : 'settled without claim'}
             </span>
           ))}
           {queuedMail.map(message => (
             <span key={message.id} className={css.attentionMail}>
               <span className={css.attentionIcon}>✉</span>
-              queued: {message.from} → {message.to} · delivers at the next turn boundary
+              {message.from} → {message.to} · queued for the next turn
             </span>
           ))}
         </div>
       )}
-      <div className={css.members}>
-        {task.state.members.filter(m => m.retired !== true).map((member) => {
-          const activity = member.sessionId === '' ? 'unspawned' : (task.activity[member.name] ?? 'ready')
-          const dot = activity === 'running' ? css.dotRunning : activity === 'idle' ? css.dotIdle : css.dotReady
-          return (
-            <button
-              key={member.name}
-              type="button"
-              className={css.member}
-              title={`${member.role} — ${activity}${member.model !== undefined ? ` · ${member.model}` : ''}`}
-              onClick={() => { if (member.sessionId !== '') openSession(member.sessionId as SessionId) }}
-            >
-              <span className={`${css.dot} ${dot}`} />
-              {member.name}
-              <span className={css.memberRole}>{member.role.split(/[:：]/)[0]}</span>
-            </button>
-          )
-        })}
-      </div>
-      <div className={css.lanes}>
-        {LANES.map((lane) => {
-          const nodes = lanes[lane]
-          if (nodes.length === 0) return null
-          return (
-            <div key={lane}>
-              <div className={`${css.laneHead} ${lane === 'awaiting_review' ? css.laneHeadReview : ''}`}>
-                <span>{LANE_LABEL[lane]}</span>
-                <span>{nodes.length}</span>
-              </div>
-              {nodes.map(node => <NodeRow key={node.key} node={node} />)}
-            </div>
-          )
-        })}
+      {members.length > 0 && (
+        <div className={css.members}>
+          {members.map((member) => {
+            const activity = member.sessionId === '' ? 'ready' : (task.activity[member.name] ?? 'ready')
+            const dotClass = activity === 'running' ? css.statusRunning : activity === 'idle' ? css.statusIdle : css.statusReady
+            return (
+              <button
+                key={member.name}
+                type="button"
+                className={css.member}
+                title={`${member.role} — ${activity}${member.model !== undefined ? ` · ${member.model}` : ''}`}
+                onClick={() => { if (member.sessionId !== '') openSession(member.sessionId as SessionId) }}
+              >
+                <span className={css.avatar} style={{ background: avatarColor(member.name) }}>
+                  {initialOf(member.name)}
+                  <span className={`${css.statusDot} ${dotClass}`} />
+                </span>
+                <span className={css.memberName}>{member.name}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <div className={css.plan}>
+        {nodes.map((node, index) => (
+          <StepRow
+            key={node.key}
+            node={node}
+            members={members}
+            isLast={index === nodes.length - 1}
+            openSession={openSession}
+          />
+        ))}
       </div>
     </div>
   )
@@ -173,7 +241,6 @@ export function Panel({ sessionsList, openSession }: {
 
   if (task === undefined || mode === 'hidden') return null
   const progress = progressOf(task.state)
-  const percent = progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100)
   const anyRunning = Object.values(task.activity).includes('running')
 
   if (mode === 'pill') {
@@ -191,13 +258,13 @@ export function Panel({ sessionsList, openSession }: {
     <div className={css.host}>
       <section className={css.board} data-team-task-board>
         <header className={css.head}>
-          <span className={css.title} title={task.state.name}>{task.state.name}</span>
+          <span className={css.title} title={task.state.goal}>{task.state.name}</span>
           <span className={css.percent}>{progress.done}/{progress.total}</span>
-          <button type="button" className={css.headButton} title="收起 collapse" onClick={() => setMode('pill')}>–</button>
-          <button type="button" className={css.headButton} title="关闭 close" onClick={() => setMode('hidden')}>×</button>
+          <button type="button" className={css.headButton} title="收起" onClick={() => setMode('pill')}>–</button>
+          <button type="button" className={css.headButton} title="关闭" onClick={() => setMode('hidden')}>×</button>
         </header>
-        <div className={css.progressTrack}>
-          <div className={css.progressFill} style={{ width: `${percent}%` }} />
+        <div className={css.segments}>
+          {task.state.nodes.map(node => <span key={node.key} className={segmentClass(node)} title={`${node.key} · ${node.status}`} />)}
         </div>
         <TaskBoard task={task} openSession={openSession} />
       </section>
