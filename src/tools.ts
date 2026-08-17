@@ -669,7 +669,10 @@ export function registerTeamTaskTools(
         if (lead !== undefined && from !== LEAD_KEY) delivered = steerLead(lead, from, args.content)
       } else if (lead !== undefined) {
         const recipient = state.members.find(m => m.name === to)!
-        if (recipient.sessionId !== '' && memberActivity(ctx, recipient.sessionId) !== 'running') {
+        // A RUNNING recipient still accepts: `followup` queues FIFO into its
+        // inbox for the next turn boundary — exactly the delivery semantics
+        // we want for in-flight guidance. Only a never-spawned member queues.
+        if (recipient.sessionId !== '') {
           const text = from === LEAD_KEY
             ? args.content
             : `Message from teammate ${from}:\n\n${args.content}`

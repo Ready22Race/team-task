@@ -1,17 +1,18 @@
 /**
- * The team-task board floater: an event-log-native kanban (design.md §6).
+ * The team-task board floater: an event-log-native kanban (design.md §6),
+ * themed with the host's `--dsw-alias-*` design tokens.
  *
- * Polls the host projection route; lanes pending / working / review /
- * approved, an attention strip (reviews owed, undelivered mail), member
- * activity dots (click opens the member session), and per-node attempt
- * badges. Session-follow: shows tasks whose lead is the current session.
+ * Three view modes: expanded board, collapsed pill (–), fully hidden (×,
+ * reopened by the conversation card's board button or a new task). Polls the
+ * host projection; lanes pending / working / review / approved, attention
+ * split into reviews (warn) and queued mail (info), member activity dots.
  * @module team-task/client/panel
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
-  attentionOf, groupLanes, LANES, progressOf,
+  groupLanes, LANES, progressOf,
   type BoardNode, type BoardTask, type Lane,
 } from './board-model.ts'
 import css from './Panel.module.css'
@@ -22,7 +23,7 @@ export const OPEN_BOARD_EVENT = 'team-task:open-board'
 const LANE_LABEL: Record<Lane, string> = {
   pending: 'Pending',
   working: 'Working',
-  awaiting_review: 'Review',
+  awaiting_review: 'Needs review',
   approved: 'Approved',
 }
 
@@ -36,12 +37,12 @@ function NodeRow({ node }: { node: BoardNode }) {
   return (
     <div className={`${css.node} ${node.status === 'pending' && node.dependsOn.length > 0 ? css.blocked : ''}`}>
       <span className={css.nodeKey}>{node.key}</span>
-      <span className={css.nodeTitle}>{node.title}</span>
+      <span className={css.nodeTitle} title={node.title}>{node.title}</span>
       {node.assignee !== undefined && <span className={css.badge}>{node.assignee}</span>}
       {node.attempts > 1 && <span className={css.badgeWarn}>#{node.attempts}</span>}
       {node.autoApprove && <span className={css.badgeFast}>fast</span>}
       {node.status === 'awaiting_review' && (
-        <span className={outcome === 'completed' ? css.badge : css.badgeWarn}>
+        <span className={outcome === 'completed' ? css.badgeFast : css.badgeWarn}>
           {outcome === 'completed' ? 'claimed' : outcome ?? 'settled'}
         </span>
       )}
@@ -54,26 +55,33 @@ function TaskBoard({ task, openSession }: {
   openSession: (id: SessionId) => void
 }) {
   const lanes = useMemo(() => groupLanes(task.state.nodes), [task.state.nodes])
-  const attention = useMemo(() => attentionOf(task), [task])
-  const progress = progressOf(task.state)
-  const percent = progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100)
+  const reviews = task.state.nodes.filter(n => n.status === 'awaiting_review')
+  const queuedMail = task.state.messages.filter(m => m.deliveredAt === undefined)
   return (
-    <>
-      <p className={css.goal}>{task.state.goal}</p>
-      <div className={css.progressTrack}>
-        <div className={css.progressFill} style={{ width: `${percent}%` }} />
-      </div>
+    <div className={css.body}>
+      {task.state.goal !== '' && <p className={css.goal}>{task.state.goal}</p>}
       {task.state.finishedAt !== undefined && (
         <div className={css.finished}>finished: {task.state.finishStatus}</div>
       )}
-      {attention.length > 0 && (
+      {(reviews.length > 0 || queuedMail.length > 0) && (
         <div className={css.attention}>
-          {attention.map(item => <span key={item} className={css.attentionItem}>⚠ {item}</span>)}
+          {reviews.map(node => (
+            <span key={node.key} className={css.attentionReview}>
+              <span className={css.attentionIcon}>⚠</span>
+              review {node.key} · {node.runs.at(-1)?.outcome === 'completed' ? 'claimed complete' : 'settled without claim — inspect disk'}
+            </span>
+          ))}
+          {queuedMail.map(message => (
+            <span key={message.id} className={css.attentionMail}>
+              <span className={css.attentionIcon}>✉</span>
+              queued: {message.from} → {message.to} · delivers at the next turn boundary
+            </span>
+          ))}
         </div>
       )}
       <div className={css.members}>
         {task.state.members.filter(m => m.retired !== true).map((member) => {
-          const activity = task.activity[member.name] ?? 'ready'
+          const activity = member.sessionId === '' ? 'unspawned' : (task.activity[member.name] ?? 'ready')
           const dot = activity === 'running' ? css.dotRunning : activity === 'idle' ? css.dotIdle : css.dotReady
           return (
             <button
@@ -85,7 +93,7 @@ function TaskBoard({ task, openSession }: {
             >
               <span className={`${css.dot} ${dot}`} />
               {member.name}
-              <span className={css.memberRole}>{member.role}</span>
+              <span className={css.memberRole}>{member.role.split(/[:：]/)[0]}</span>
             </button>
           )
         })}
@@ -95,8 +103,8 @@ function TaskBoard({ task, openSession }: {
           const nodes = lanes[lane]
           if (nodes.length === 0) return null
           return (
-            <div key={lane} className={`${css.lane} ${lane === 'awaiting_review' ? css.laneReview : ''}`}>
-              <div className={css.laneHead}>
+            <div key={lane}>
+              <div className={`${css.laneHead} ${lane === 'awaiting_review' ? css.laneHeadReview : ''}`}>
                 <span>{LANE_LABEL[lane]}</span>
                 <span>{nodes.length}</span>
               </div>
@@ -105,18 +113,20 @@ function TaskBoard({ task, openSession }: {
           )
         })}
       </div>
-    </>
+    </div>
   )
 }
 
-/** The floater. Collapsed pill ↔ expanded board; session-follow. */
+type ViewMode = 'board' | 'pill' | 'hidden'
+
+/** The floater. Board ↔ pill (–) ↔ hidden (×); session-follow. */
 export function Panel({ sessionsList, openSession }: {
   sessionsList: SessionListLike
   openSession: (id: SessionId) => void
 }) {
   const [tasks, setTasks] = useState<readonly BoardTask[]>([])
-  const [open, setOpen] = useState(false)
-  const [manuallyClosed, setManuallyClosed] = useState(false)
+  const [mode, setMode] = useState<ViewMode>('pill')
+  const [autoOpenedFor, setAutoOpenedFor] = useState<string>('')
   const current = useSyncExternalStore(sessionsList.subscribe, sessionsList.getSnapshot).current
 
   useEffect(() => {
@@ -142,7 +152,7 @@ export function Panel({ sessionsList, openSession }: {
   }, [])
 
   useEffect(() => {
-    const onOpen = (): void => { setOpen(true); setManuallyClosed(false) }
+    const onOpen = (): void => { setMode('board') }
     window.addEventListener(OPEN_BOARD_EVENT, onOpen)
     return () => window.removeEventListener(OPEN_BOARD_EVENT, onOpen)
   }, [])
@@ -151,22 +161,28 @@ export function Panel({ sessionsList, openSession }: {
     () => tasks.filter(t => current !== undefined && t.state.leadSessionId === current),
     [tasks, current],
   )
+  const task = mine.find(t => t.state.finishedAt === undefined) ?? mine.at(-1)
 
-  // Auto-expand when the current session's task appears (unless user closed).
+  // Auto-expand once per task; the user's – / × afterwards is respected.
   useEffect(() => {
-    if (mine.length > 0 && !manuallyClosed) setOpen(true)
-  }, [mine.length, manuallyClosed])
+    if (task !== undefined && task.state.id !== autoOpenedFor) {
+      setAutoOpenedFor(task.state.id)
+      setMode('board')
+    }
+  }, [task, autoOpenedFor])
 
-  if (mine.length === 0) return null
-  const task = mine.find(t => t.state.finishedAt === undefined) ?? mine[mine.length - 1]!
+  if (task === undefined || mode === 'hidden') return null
+  const progress = progressOf(task.state)
+  const percent = progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100)
   const anyRunning = Object.values(task.activity).includes('running')
 
-  if (!open) {
+  if (mode === 'pill') {
     return (
       <div className={css.host}>
-        <button type="button" className={css.pill} onClick={() => { setOpen(true); setManuallyClosed(false) }}>
+        <button type="button" className={css.pill} onClick={() => setMode('board')}>
           {anyRunning && <span className={css.pulse} />}
-          team-task · {task.state.name}
+          {task.state.name}
+          <span className={css.pillCount}>{progress.done}/{progress.total}</span>
         </button>
       </div>
     )
@@ -175,9 +191,14 @@ export function Panel({ sessionsList, openSession }: {
     <div className={css.host}>
       <section className={css.board} data-team-task-board>
         <header className={css.head}>
-          <span className={css.title}>{task.state.name}</span>
-          <button type="button" className={css.close} onClick={() => { setOpen(false); setManuallyClosed(true) }}>×</button>
+          <span className={css.title} title={task.state.name}>{task.state.name}</span>
+          <span className={css.percent}>{progress.done}/{progress.total}</span>
+          <button type="button" className={css.headButton} title="收起 collapse" onClick={() => setMode('pill')}>–</button>
+          <button type="button" className={css.headButton} title="关闭 close" onClick={() => setMode('hidden')}>×</button>
         </header>
+        <div className={css.progressTrack}>
+          <div className={css.progressFill} style={{ width: `${percent}%` }} />
+        </div>
         <TaskBoard task={task} openSession={openSession} />
       </section>
     </div>

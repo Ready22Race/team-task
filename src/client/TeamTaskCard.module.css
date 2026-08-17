@@ -1,9 +1,11 @@
 .root {
-  border: 1px solid rgba(120, 130, 140, 0.28);
-  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  border-radius: 12px;
   padding: 10px 12px;
   margin: 6px 0;
   font-size: 12.5px;
+  color: var(--dsw-alias-label-primary);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -18,19 +20,28 @@
 .mark {
   width: 22px;
   height: 22px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #10a37f, #0c7a5f);
-  color: #fff;
+  border-radius: 7px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary-invert, #fff);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
+  flex: none;
 }
 
-.name { font-weight: 650; }
-.tag { font-size: 10.5px; opacity: 0.55; }
-.goal { margin: 0; opacity: 0.78; }
+.name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { font-size: 10.5px; color: var(--dsw-alias-label-caption); flex: none; }
+
+.goal {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .foot {
   display: flex;
@@ -39,16 +50,21 @@
   gap: 8px;
 }
 
-.meta { opacity: 0.6; font-size: 11.5px; }
+.meta {
+  color: var(--dsw-alias-label-caption);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
 
 .boardButton {
-  border: 1px solid rgba(16, 163, 127, 0.5);
-  color: #0c7a5f;
-  background: rgba(16, 163, 127, 0.08);
-  border-radius: 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-button-ghost-active-fill, transparent);
+  color: var(--dsw-alias-brand-text, var(--dsw-alias-label-primary));
+  border-radius: 7px;
   padding: 3px 10px;
   font-size: 11.5px;
   cursor: pointer;
+  flex: none;
 }
 
-.boardButton:hover { background: rgba(16, 163, 127, 0.16); }
+.boardButton:hover { background: var(--dsw-alias-interactive-bg-hover); }

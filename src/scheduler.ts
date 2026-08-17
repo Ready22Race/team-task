@@ -195,9 +195,9 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
 
       for (const member of state.members) {
         if (member.retired === true) continue
-        if (member.sessionId !== '' && memberActivity(ctx, member.sessionId) === 'running') continue
 
-        // Durable mail first — but only to an already-spawned member; a
+        // Durable mail first — deliverable even to a RUNNING member
+        // (`followup` queues FIFO for its next turn boundary). Only a
         // never-spawned member's mail waits for its first assignment.
         const mail = undeliveredTo(state, member.name)
         if (mail.length > 0 && member.sessionId !== '') {
@@ -211,6 +211,7 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
           }
           continue
         }
+        if (member.sessionId !== '' && memberActivity(ctx, member.sessionId) === 'running') continue
 
         // An open dispatched node without a started run = delivery owed
         // (fresh dispatch, or the wake was lost). Redelivery is fence-safe.
