@@ -71,12 +71,36 @@ async function findParticipantTask(
   return undefined
 }
 
+/** The most recently finished task this caller participated in, if any. */
+async function findFinishedTask(
+  stateRoot: string,
+  callerId: string,
+): Promise<TeamTaskState | undefined> {
+  let latest: TeamTaskState | undefined
+  for (const taskId of await listTaskIds(stateRoot)) {
+    const state = await readState(stateRoot, taskId)
+    if (state === undefined || state.finishedAt === undefined) continue
+    if (identityOf(state, callerId) === undefined) continue
+    if (latest === undefined || (state.finishedAt ?? 0) > (latest.finishedAt ?? 0)) latest = state
+  }
+  return latest
+}
+
 async function requireTask(stateRoot: string, callerId: string): Promise<TeamTaskState> {
   const state = await findParticipantTask(stateRoot, callerId)
-  if (state === undefined) {
-    throw new Error('no active team task for this session — the lead creates one with team_task_create')
+  if (state !== undefined) return state
+  // A finished task is the common case here (the session ran one earlier and
+  // the user now asks for more): say so, and name the only way forward — a
+  // finished task is an immutable archive, never reopened.
+  const finished = await findFinishedTask(stateRoot, callerId)
+  if (finished !== undefined) {
+    throw new Error(
+      `your previous team task "${finished.name}" is finished (${finished.finishStatus ?? 'completed'}) and archived — `
+      + 'finished tasks are immutable. If the new request extends that work, start a FRESH task with '
+      + 'team_task_create (carry over what matters: reference the archived deliverables in the new plan\'s node goals).',
+    )
   }
-  return state
+  throw new Error('no active team task for this session — the lead creates one with team_task_create')
 }
 
 function requireLead(state: TeamTaskState, callerId: string): void {
@@ -221,7 +245,12 @@ export function registerTeamTaskTools(
       const stateRoot = stateRootOf(workspace)
       const existing = await findParticipantTask(stateRoot, lead.id)
       if (existing !== undefined) {
-        throw new Error(`this session already participates in active task "${existing.id}" — finish it first`)
+        const open = existing.nodes.filter(n => n.status !== 'approved' && n.status !== 'cancelled').length
+        throw new Error(
+          `this session already leads active task "${existing.name}" (${open} node(s) not yet approved). `
+          + 'One active task per session: extend it with team_task_plan, or close it with '
+          + 'team_task_finish before creating another.',
+        )
       }
       const taskId = mintTaskId(args.name, new Date())
       const specs = ((args.nodes ?? []) as unknown as RawNodeArg[]).map(nodeSpecFromArgs)

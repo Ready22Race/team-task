@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { progressOf, type BoardTask } from './board-model.ts'
+import { progressOf, resolveTask, type BoardTask } from './board-model.ts'
 import type { TeamTaskCardData } from './card-definition.ts'
 import { TeamMark } from './TeamMark.tsx'
 import { OPEN_BOARD_EVENT } from './Panel.tsx'
@@ -30,7 +30,7 @@ export function TeamTaskCard({ node }: TeamTaskCardProps) {
         if (!response.ok) return
         const body = (await response.json()) as { tasks?: BoardTask[] }
         const found = Array.isArray(body.tasks)
-          ? body.tasks.find(t => t.state.id === data.taskId)
+          ? resolveTask(body.tasks, data.taskId)
           : undefined
         if (!cancelled) setLive(found)
       } catch {
@@ -64,7 +64,14 @@ export function TeamTaskCard({ node }: TeamTaskCardProps) {
         <button
           type="button"
           className={css.boardButton}
-          onClick={() => { window.dispatchEvent(new CustomEvent(OPEN_BOARD_EVENT)) }}
+          onClick={() => {
+            // Carry the task id: a session may hold several tasks over time,
+            // and this card means THIS one (the panel otherwise shows the
+            // newest unfinished task and the click looks broken).
+            window.dispatchEvent(new CustomEvent(OPEN_BOARD_EVENT, {
+              detail: { taskId: live?.state.id ?? data.taskId },
+            }))
+          }}
         >
           看板 board
         </button>

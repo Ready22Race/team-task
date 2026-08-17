@@ -118,3 +118,19 @@ export function progressOf(state: BoardState): { done: number; total: number } {
   const active = state.nodes.filter(n => n.status !== 'cancelled')
   return { done: active.filter(n => n.status === 'approved').length, total: active.length }
 }
+
+/**
+ * Resolve a card/pin reference to a live task. Conversation cards fold the
+ * `team_task_create` ARGUMENTS, which only yield the name slug — the real id
+ * carries a host-minted `YYYYMMDD-HHmmss-` prefix (storage v2). Match the
+ * exact id first, then the slug suffix, preferring the newest match.
+ */
+export function resolveTask(
+  tasks: readonly BoardTask[],
+  reference: string,
+): BoardTask | undefined {
+  const exact = tasks.find(t => t.state.id === reference)
+  if (exact !== undefined) return exact
+  const suffix = tasks.filter(t => t.state.id.endsWith(`-${reference}`))
+  return suffix.length === 0 ? undefined : suffix[suffix.length - 1]
+}

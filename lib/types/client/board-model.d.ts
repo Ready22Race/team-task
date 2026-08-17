@@ -76,3 +76,10 @@ export declare function progressOf(state: BoardState): {
     done: number;
     total: number;
 };
+/**
+ * Resolve a card/pin reference to a live task. Conversation cards fold the
+ * `team_task_create` ARGUMENTS, which only yield the name slug — the real id
+ * carries a host-minted `YYYYMMDD-HHmmss-` prefix (storage v2). Match the
+ * exact id first, then the slug suffix, preferring the newest match.
+ */
+export declare function resolveTask(tasks: readonly BoardTask[], reference: string): BoardTask | undefined;

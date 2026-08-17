@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { progressOf, type BoardMember, type BoardNode, type BoardTask } from './board-model.ts'
+import { progressOf, resolveTask, type BoardMember, type BoardNode, type BoardTask } from './board-model.ts'
 import { TeamMark } from './TeamMark.tsx'
 import css from './Panel.module.css'
 
@@ -189,6 +189,9 @@ export function Panel({ sessionsList, openSession }: {
   const [tasks, setTasks] = useState<readonly BoardTask[]>([])
   const [mode, setMode] = useState<ViewMode>('pill')
   const [autoOpenedFor, setAutoOpenedFor] = useState<string>('')
+  /** Task the user explicitly asked for (card button / switcher); wins over
+   * the "newest unfinished" default until they pick something else. */
+  const [pinnedTaskId, setPinnedTaskId] = useState<string | undefined>()
   const [filter, setFilter] = useState<Filter>('all')
   const [selectedKey, setSelectedKey] = useState<string | undefined>()
   const [now, setNow] = useState<number>(() => Date.now())
@@ -217,7 +220,11 @@ export function Panel({ sessionsList, openSession }: {
   }, [])
 
   useEffect(() => {
-    const onOpen = (): void => { setMode('board') }
+    const onOpen = (event: Event): void => {
+      const requested = (event as CustomEvent<{ taskId?: string }>).detail?.taskId
+      if (requested !== undefined) setPinnedTaskId(requested)
+      setMode('board')
+    }
     window.addEventListener(OPEN_BOARD_EVENT, onOpen)
     return () => window.removeEventListener(OPEN_BOARD_EVENT, onOpen)
   }, [])
@@ -226,16 +233,18 @@ export function Panel({ sessionsList, openSession }: {
     () => tasks.filter(t => current !== undefined && t.state.leadSessionId === current),
     [tasks, current],
   )
-  const task = mine.find(t => t.state.finishedAt === undefined) ?? mine.at(-1)
+  const task = (pinnedTaskId === undefined ? undefined : resolveTask(mine, pinnedTaskId))
+    ?? mine.find(t => t.state.finishedAt === undefined)
+    ?? mine.at(-1)
 
   useEffect(() => {
     if (task !== undefined && task.state.id !== autoOpenedFor) {
       setAutoOpenedFor(task.state.id)
-      setMode('board')
+      if (pinnedTaskId === undefined) setMode('board')
       setSelectedKey(undefined)
       setFilter('all')
     }
-  }, [task, autoOpenedFor])
+  }, [task, autoOpenedFor, pinnedTaskId])
 
   if (task === undefined || mode === 'hidden') return null
 
@@ -287,6 +296,22 @@ export function Panel({ sessionsList, openSession }: {
               <div className={css.runId}>{task.state.id}</div>
             </div>
             <div className={css.headActions}>
+              {mine.length > 1 && (
+                <button
+                  type="button"
+                  className={css.tiny}
+                  title={`本会话 ${mine.length} 个任务 · 切换到下一个`}
+                  onClick={() => {
+                    const index = mine.findIndex(t => t.state.id === task.state.id)
+                    const next = mine[(index + 1) % mine.length]
+                    if (next !== undefined) {
+                      setPinnedTaskId(next.state.id)
+                      setSelectedKey(undefined)
+                      setFilter('all')
+                    }
+                  }}
+                >⇄</button>
+              )}
               <button type="button" className={css.tiny} title="收起" onClick={() => setMode('pill')}>—</button>
               <button type="button" className={css.tiny} title="关闭" onClick={() => setMode('hidden')}>×</button>
             </div>
