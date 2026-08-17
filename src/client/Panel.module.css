@@ -379,7 +379,9 @@
   border-radius: 14px;
   overflow: hidden;
   flex: none;
-  max-height: 220px;
+  /* The drawer may carry a full review payload (run history + feedback +
+     output) — give it up to half the panel instead of a cramped strip. */
+  max-height: min(46vh, 420px);
   display: flex;
   flex-direction: column;
 }
@@ -443,7 +445,7 @@
   padding: 8px 10px;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 96px;
+  max-height: 280px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
@@ -456,6 +458,9 @@
   padding: 8px 10px;
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 /* ---- attention (above list) ---- */
