@@ -140,6 +140,14 @@ team_task_add_member { name, role, playbook?, provider?, model?, effort? }
 - `playbook` → a role-specific playbook name the member loads on demand,
   aligning with the identity/method/brain/equipment split we use for agents.
 
+**Members spawn lazily.** `team_task_add_member` records the profile only;
+the subagent is created by the scheduler at the member's *first node
+dispatch*, with the assignment as its very first prompt. No welcome turn is
+paid upfront, and there is no idle window in which an unassigned member can
+freelance — the two failure modes observed when spawning at registration
+(members burning tens of thousands of tokens on "recon" before any node was
+ready for them).
+
 ## 6. Board UI (event-log native)
 
 > Design for M2; the host data plane ships in M1 so the board is a pure client.

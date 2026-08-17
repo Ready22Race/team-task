@@ -74,7 +74,11 @@ export interface Member {
   provider?: string
   model?: string
   effort?: string
-  /** Durable child session id ('' until spawned). */
+  /**
+   * Durable child session id. '' until the member is actually spawned —
+   * members spawn LAZILY at their first dispatch (no upfront welcome turn,
+   * no freelancing window), not at `team_task_add_member`.
+   */
   sessionId: string
   addedAt: number
   retired?: boolean
@@ -125,6 +129,7 @@ export interface NodeSpec {
 export type TeamTaskEvent =
   | { type: 'task_created'; id: string; name: string; goal: string; leadSessionId: string }
   | { type: 'member_added'; member: Omit<Member, 'addedAt'> }
+  | { type: 'member_spawned'; name: string; sessionId: string }
   | { type: 'member_retired'; name: string }
   | { type: 'node_planned'; node: NodeSpec }
   | { type: 'node_updated'; key: string; patch: Partial<Omit<NodeSpec, 'key'>> }

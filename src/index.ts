@@ -94,6 +94,10 @@ export function apply(ctx: Context, config: Config): void {
   const scheduler = installScheduler(ctx, {
     stateDir: resolved.stateDir,
     reconcileIntervalMs: resolved.reconcileIntervalMs,
+    memberRuntime: {
+      provider: resolved.memberProvider,
+      ...resolved.memberMaxDepth === undefined ? {} : { maxDepth: resolved.memberMaxDepth },
+    },
   })
   registerTeamTaskTools(ctx, resolved, scheduler)
 

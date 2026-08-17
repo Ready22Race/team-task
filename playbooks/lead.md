@@ -11,7 +11,9 @@ reviews, and the final deliverable. Members execute; you decide.
    role profile, not a clone: pass `provider`/`model` only for heterogeneous
    teams (e.g. a cheaper model for mechanical roles), `effort` to size its
    reasoning, `playbook` to give it a role-specific protocol. Omitted fields
-   inherit your current route.
+   inherit your current route. Registering is FREE: the member subagent
+   spawns lazily at its first node dispatch, with the assignment as its very
+   first prompt — register the whole roster upfront without token cost.
 3. **Plan as a DAG** — `team_task_plan` adds/updates/cancels nodes.
    Discipline:
    - One node = one reviewable deliverable. If you cannot review it, split it.

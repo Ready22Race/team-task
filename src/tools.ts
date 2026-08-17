@@ -30,9 +30,7 @@ import {
   deliverToMember,
   interruptMember,
   memberActivity,
-  spawnMember,
   steerLead,
-  type MemberRuntimeConfig,
 } from './members.ts'
 import type { TaskScheduler } from './scheduler.ts'
 import {
@@ -177,10 +175,6 @@ export function registerTeamTaskTools(
   config: ToolsConfig,
   scheduler: TaskScheduler,
 ): void {
-  const memberRuntime: MemberRuntimeConfig = {
-    provider: config.memberProvider,
-    ...config.memberMaxDepth === undefined ? {} : { maxDepth: config.memberMaxDepth },
-  }
   const stateRootOf = (workspace: string): string => join(workspace, config.stateDir)
 
   ctx.tools.register(defineTool({
@@ -260,7 +254,7 @@ export function registerTeamTaskTools(
 
   ctx.tools.register(defineTool({
     name: 'team_task_add_member',
-    description: 'Add one member (durable continuable subagent) with a ROLE PROFILE. Omitted provider/model inherit your current route; pass them only for heterogeneous teams. effort sizes its reasoning; playbook names a role-specific protocol it loads on demand.',
+    description: 'Register one member ROLE PROFILE. The member subagent spawns LAZILY at its first node dispatch (no upfront turn is spent). Omitted provider/model inherit your current route; pass them only for heterogeneous teams. effort sizes its reasoning; playbook names a role-specific protocol it loads on demand.',
     parameters: {
       name: { type: 'string', required: true, description: 'Unique member name inside the task.' },
       role: { type: 'string', required: true, description: 'Role description, e.g. researcher / engineer / reviewer.' },
@@ -275,10 +269,10 @@ export function registerTeamTaskTools(
         additionalProperties: false,
         properties: {
           member: { type: 'string', required: true },
-          session_id: { type: 'string', required: true },
+          spawn: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `member ${value.member} joined (${value.session_id}).` }],
+      render: (_args, value) => [{ type: 'text', text: `member ${value.member} registered (${value.spawn}).` }],
     },
     async execute(args, exec) {
       const lead = requireAgent(exec)
@@ -303,13 +297,13 @@ export function registerTeamTaskTools(
         ...args.effort === undefined ? {} : { effort: args.effort },
         ...args.playbook === undefined ? {} : { playbook: args.playbook },
       }
-      const sessionId = await spawnMember(
-        ctx, memberRuntime, lead, state, profile, config.stateDir, exec.signal,
-      )
+      // Lazy spawn (design.md §5): record the profile only. The subagent is
+      // created by the scheduler at this member's FIRST node dispatch, with
+      // the assignment as its very first prompt.
       await mutateTask(stateRoot, state.id, () => [{
-        type: 'member_added', member: { ...profile, sessionId },
+        type: 'member_added', member: { ...profile, sessionId: '' },
       }])
-      return { member: args.name, session_id: sessionId }
+      return { member: args.name, spawn: 'lazy (at first dispatch)' }
     },
   }))
 
@@ -637,7 +631,7 @@ export function registerTeamTaskTools(
         if (lead !== undefined && from !== LEAD_KEY) delivered = steerLead(lead, from, args.content)
       } else if (lead !== undefined) {
         const recipient = state.members.find(m => m.name === to)!
-        if (memberActivity(ctx, recipient.sessionId) !== 'running') {
+        if (recipient.sessionId !== '' && memberActivity(ctx, recipient.sessionId) !== 'running') {
           const text = from === LEAD_KEY
             ? args.content
             : `Message from teammate ${from}:\n\n${args.content}`

@@ -54,10 +54,10 @@ Before your first node, call ${playbookHint} to load your working protocol. Non-
 5. You are a worker: never plan, dispatch, review, or finish the task.`
 }
 
-/** The initial message delivered when the member is created. */
-export function memberWelcome(state: TeamTaskState): string {
-  return `You joined team-task "${state.name}" as a member. Wait for node assignments; the scheduler wakes you when work is ready.`
-}
+// Members spawn LAZILY: there is no welcome turn. The first prompt a member
+// ever sees is its first node assignment (spawnMember's firstPrompt), so no
+// tokens are spent before real work exists and there is no idle window for
+// the member to freelance in.
 
 /** Build the assignment prompt for a dispatch ticket. */
 export function assignmentPrompt(
@@ -95,6 +95,7 @@ export async function spawnMember(
   state: TeamTaskState,
   member: Omit<Member, 'addedAt' | 'sessionId'>,
   stateDir: string,
+  firstPrompt: string,
   signal: AbortSignal,
 ): Promise<string> {
   // Fail loud at first use: provider registration is a sibling plugin row's
@@ -127,7 +128,7 @@ export async function spawnMember(
     provider: config.provider,
     label: `team-task:${state.id}:${member.name}`,
     request: {
-      prompt: [{ type: 'text', text: memberWelcome(state) }],
+      prompt: [{ type: 'text', text: firstPrompt }],
       parent: lead,
       persona,
       toolFilter: { deny: [...MEMBER_DENIED_TOOLS] },

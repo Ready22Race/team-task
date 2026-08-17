@@ -29,13 +29,17 @@ import {
   brandedSessionId,
   deliverToMember,
   memberActivity,
+  spawnMember,
   steerLead,
+  type MemberRuntimeConfig,
 } from './members.ts'
-import { LEAD_KEY, type PlanNode, type TeamTaskEvent, type TeamTaskState } from './types.ts'
+import { LEAD_KEY, type Member, type PlanNode, type TeamTaskEvent, type TeamTaskState } from './types.ts'
 
 export interface SchedulerConfig {
   readonly stateDir: string
   readonly reconcileIntervalMs: number
+  /** Member subagent runtime (lazy spawn happens here, at first dispatch). */
+  readonly memberRuntime: MemberRuntimeConfig
 }
 
 export interface TaskScheduler {
@@ -143,13 +147,60 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
       if (lead === undefined) return
       await deliverLeadMail(workspace, state, lead)
 
-      for (const member of state.members) {
-        if (member.retired === true || member.sessionId === '') continue
-        if (memberActivity(ctx, member.sessionId) === 'running') continue
+      /**
+       * Hand one dispatched node to its member. LAZY SPAWN lives here: a
+       * member with no session yet is created NOW, with the assignment as
+       * its very first prompt — no welcome turn, no freelancing window.
+       * Returns the refreshed state (or undefined when delivery failed).
+       */
+      const deliverAssignment = async (
+        member: Member,
+        node: PlanNode,
+      ): Promise<TeamTaskState | undefined> => {
+        if (member.sessionId === '') {
+          let sessionId: string
+          try {
+            sessionId = await spawnMember(
+              ctx, config.memberRuntime, lead, state!,
+              { name: member.name, role: member.role, ...member.playbook === undefined ? {} : { playbook: member.playbook }, ...member.provider === undefined ? {} : { provider: member.provider }, ...member.model === undefined ? {} : { model: member.model }, ...member.effort === undefined ? {} : { effort: member.effort } },
+              config.stateDir,
+              assignmentPrompt(node, state!, config.stateDir),
+              new AbortController().signal,
+            )
+          } catch (error: unknown) {
+            ctx.logger.warn(`team-task: lazy spawn of ${member.name} failed: ${String(error)}`)
+            return undefined
+          }
+          try {
+            const result = await mutateTask(stateRoot, taskId, () => [
+              { type: 'member_spawned', name: member.name, sessionId },
+              { type: 'run_started', key: node.key, fence: node.fence, sessionId },
+            ])
+            return result.state
+          } catch { return undefined }
+        }
+        const accepted = await deliverToMember(
+          ctx, lead, member.sessionId,
+          assignmentPrompt(node, state!, config.stateDir),
+          new AbortController().signal,
+        )
+        if (!accepted) return undefined
+        try {
+          const result = await mutateTask(stateRoot, taskId, () => [{
+            type: 'run_started', key: node.key, fence: node.fence, sessionId: member.sessionId,
+          }])
+          return result.state
+        } catch { return undefined }
+      }
 
-        // Durable mail first: undelivered messages are real pending work.
+      for (const member of state.members) {
+        if (member.retired === true) continue
+        if (member.sessionId !== '' && memberActivity(ctx, member.sessionId) === 'running') continue
+
+        // Durable mail first — but only to an already-spawned member; a
+        // never-spawned member's mail waits for its first assignment.
         const mail = undeliveredTo(state, member.name)
-        if (mail.length > 0) {
+        if (mail.length > 0 && member.sessionId !== '') {
           const accepted = await deliverToMember(
             ctx, lead, member.sessionId, fallbackMailPrompt(mail), new AbortController().signal,
           )
@@ -165,19 +216,7 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
         // (fresh dispatch, or the wake was lost). Redelivery is fence-safe.
         const open = openNodeOf(state, member.name)
         if (open !== undefined && open.status === 'dispatched') {
-          const accepted = await deliverToMember(
-            ctx, lead, member.sessionId,
-            assignmentPrompt(open, state, config.stateDir),
-            new AbortController().signal,
-          )
-          if (accepted) {
-            try {
-              const result = await mutateTask(stateRoot, taskId, () => [{
-                type: 'run_started', key: open.key, fence: open.fence, sessionId: member.sessionId,
-              }])
-              state = result.state
-            } catch { /* raced */ }
-          }
+          state = await deliverAssignment(member, open) ?? state
           continue
         }
         if (open !== undefined) continue
@@ -199,17 +238,7 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
           state = result.state
           const dispatched = state.nodes.find(n => n.key === target.key)
           if (dispatched === undefined) continue
-          const accepted = await deliverToMember(
-            ctx, lead, member.sessionId,
-            assignmentPrompt(dispatched, state, config.stateDir),
-            new AbortController().signal,
-          )
-          if (accepted) {
-            const result2 = await mutateTask(stateRoot, taskId, () => [{
-              type: 'run_started', key: dispatched.key, fence: dispatched.fence, sessionId: member.sessionId,
-            }])
-            state = result2.state
-          }
+          state = await deliverAssignment({ ...member, sessionId: state.members.find(m => m.name === member.name)?.sessionId ?? member.sessionId }, dispatched) ?? state
         } catch { /* raced */ }
       }
     },

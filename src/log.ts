@@ -99,6 +99,12 @@ export function applyEvent(state: TeamTaskState, line: LogLine): TeamTaskState {
       const member: Member = { ...line.member, addedAt: at }
       return { ...state, members: [...state.members, member], seq: line.seq }
     }
+    case 'member_spawned':
+      return {
+        ...state,
+        members: state.members.map(m => m.name === line.name ? { ...m, sessionId: line.sessionId } : m),
+        seq: line.seq,
+      }
     case 'member_retired':
       return {
         ...state,
@@ -279,6 +285,12 @@ export function validateEvent(state: TeamTaskState, event: TeamTaskEvent): strin
       return state.nodes.some(n => n.key === event.node.key)
         ? `node "${event.node.key}" already exists`
         : undefined
+    case 'member_spawned': {
+      const member = state.members.find(m => m.name === event.name && m.retired !== true)
+      if (member === undefined) return `no member "${event.name}"`
+      if (member.sessionId !== '') return `member "${event.name}" is already spawned`
+      return undefined
+    }
     case 'node_updated':
     case 'node_cancelled':
       if (node === undefined) return `no node "${event.key}"`

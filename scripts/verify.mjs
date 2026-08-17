@@ -47,12 +47,21 @@ await expectReject(
   /already exists/, 'duplicate node key rejected',
 )
 
-// --- member + dispatch + fence ----------------------------------------------
+// --- member (lazy spawn) + dispatch + fence ---------------------------------
 await mutateTask(root, T, () => [
-  { type: 'member_added', member: { name: 'worker', role: 'researcher', sessionId: 'sess-w' } },
+  { type: 'member_added', member: { name: 'worker', role: 'researcher', sessionId: '' } },
+])
+s = await readState(root, T)
+assert.equal(s.members[0].sessionId, '', 'member registered unspawned (lazy)')
+await mutateTask(root, T, () => [
   { type: 'node_dispatched', key: 'a', assignee: 'worker', fence: 1 },
+  { type: 'member_spawned', name: 'worker', sessionId: 'sess-w' },
   { type: 'run_started', key: 'a', fence: 1, sessionId: 'sess-w' },
 ])
+await expectReject(
+  mutateTask(root, T, () => [{ type: 'member_spawned', name: 'worker', sessionId: 'sess-x' }]),
+  /already spawned/, 'double spawn rejected',
+)
 s = await readState(root, T)
 assert.equal(identityOf(s, 'sess-w').member.name, 'worker')
 assert.equal(identityOf(s, 'lead-1').kind, 'lead')
