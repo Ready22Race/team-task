@@ -1,5 +1,9 @@
 # team-task — long-horizon multi-agent tasks for DeepSeek Harness
 
+[![npm version](https://img.shields.io/npm/v/@ready22race/dsh-team-task.svg)](https://www.npmjs.com/package/@ready22race/dsh-team-task)
+[![MIT license](https://img.shields.io/npm/l/@ready22race/dsh-team-task.svg)](./LICENSE)
+![DeepSeek Harness plugin](https://img.shields.io/badge/DeepSeek%20Harness-plugin-202724)
+
 A [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)
 plugin: a **lead** session plans a reviewed DAG, durable **members** execute
 its nodes, and a resident reconciler keeps the task moving — across model
