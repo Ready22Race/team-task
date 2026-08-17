@@ -30,6 +30,17 @@
   --tt-border: var(--dsw-alias-border-l1);
   --tt-muted: var(--dsw-alias-label-secondary);
   --tt-dim: var(--dsw-alias-label-caption);
+  --tt-panel-base: var(--dsw-alias-bg-overlay);
+}
+
+/* Dark theme: the neutral-gray overlay token reads washed-out under the
+   violet accents — deepen the card toward the mockup's navy (#121721)
+   family. Light theme keeps the token surfaces untouched. */
+:global(body[data-ds-dark-theme]) .host {
+  --tt-panel-base: #121721;
+  --tt-surface: #11151e;
+  --tt-surface2: #171c27;
+  --tt-border: rgba(255, 255, 255, 0.075);
 }
 
 .host > * { pointer-events: auto; }
@@ -84,8 +95,8 @@
   border: 1px solid var(--tt-border);
   border-radius: 20px;
   background: linear-gradient(180deg,
-    color-mix(in srgb, var(--dsw-alias-bg-overlay) 96%, var(--tt-primary) 4%),
-    var(--dsw-alias-bg-overlay));
+    color-mix(in srgb, var(--tt-panel-base) 96%, var(--tt-primary) 4%),
+    var(--tt-panel-base));
   box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
   overflow: hidden;
   position: relative;
@@ -375,7 +386,7 @@
 .inspector {
   margin: 0 11px 11px;
   border: 1px solid var(--tt-primary-border);
-  background: var(--dsw-alias-bg-layer-1);
+  background: var(--tt-surface);
   border-radius: 14px;
   overflow: hidden;
   flex: none;
