@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import { registerTeamTaskCommand } from './command.ts'
 import { listTaskIds, readLog, readState } from './log.ts'
 import { memberActivity } from './members.ts'
 import { installScheduler } from './scheduler.ts'
@@ -40,7 +41,7 @@ const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
 const WORKSPACE_KEYS = ['workspaceRegistry', 'workspace'] as const
 
 export const name = 'team-task'
-export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents']
+export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents', 'commands']
 
 /** Plugin configuration. */
 export interface Config {
@@ -71,10 +72,11 @@ export const Config: z<Config> = z.object({
  * The resident trigger — deliberately tiny (design.md §4). The full protocol
  * loads on demand through `team_task_playbook`.
  */
-const TRIGGER_SECTION = `team-task runs long-horizon goals as a lead/member team: a reviewed plan DAG, durable member subagents, automatic settlement and recovery.
-Use it when a goal needs multiple roles, parallel workstreams, or must survive interruptions — not for quick single-turn work.
-Before starting one: call team_task_playbook with role "lead" and follow it. Members load role "member" on their own.
-Core loop: team_task_create → team_task_add_member → team_task_plan → dispatch/auto-claim → team_task_await → team_task_review (approve unlocks; rework sends feedback back) → team_task_finish.`
+const TRIGGER_SECTION = `team-task runs a goal as a lead/member team: a reviewed plan DAG, durable members, runtime settlement and crash recovery. The user can also start one explicitly with /team-task <goal>.
+USE IT when the goal (a) needs 3+ distinct deliverables that different roles should own, or (b) has steps that must be reviewed before later steps build on them, or (c) is expected to outlive one turn — e.g. multi-source research reports, repo-wide audits, staged analysis→synthesis→writeup pipelines.
+DO NOT use it for single-file edits, one lookup, a quick question, or anything you can finish well in one turn — the plan/review overhead is not free.
+When it applies, say so in one line and call team_task_playbook role="lead" FIRST; the playbook owns the rest. Members load role "member" themselves.
+Loop: team_task_create → add_member → plan → dispatch/auto-flow → await → review (approve unlocks dependents; rework returns feedback) → finish.`
 
 export function apply(ctx: Context, config: Config): void {
   const resolved: ToolsConfig & { reconcileIntervalMs: number } = {
@@ -100,6 +102,8 @@ export function apply(ctx: Context, config: Config): void {
     },
   })
   registerTeamTaskTools(ctx, resolved, scheduler)
+  // Deterministic entry point, independent of model judgement.
+  registerTeamTaskCommand(ctx, resolved.stateDir)
 
   // Board data plane (design.md §6): projection bootstrap + incremental log.
   // Lazy registration: web server / workspace registry may bind after mount,

@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { progressOf, type BoardMember, type BoardNode, type BoardTask } from './board-model.ts'
+import { TeamMark } from './TeamMark.tsx'
 import css from './Panel.module.css'
 
 /** Window event the conversation card fires to (re)open the board. */
@@ -280,7 +281,7 @@ export function Panel({ sessionsList, openSession }: {
       <section className={css.panel} data-team-task-board>
         <header className={css.head}>
           <div className={css.headRow}>
-            <div className={css.runIcon}>⌁</div>
+            <div className={css.runIcon}><TeamMark size={16} /></div>
             <div className={css.headTitles}>
               <div className={css.runName} title={task.state.goal}>{task.state.name}</div>
               <div className={css.runId}>{task.state.id}</div>

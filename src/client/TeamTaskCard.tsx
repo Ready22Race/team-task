@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { progressOf, type BoardTask } from './board-model.ts'
 import type { TeamTaskCardData } from './card-definition.ts'
+import { TeamMark } from './TeamMark.tsx'
 import { OPEN_BOARD_EVENT } from './Panel.tsx'
 import css from './TeamTaskCard.module.css'
 
@@ -47,7 +48,7 @@ export function TeamTaskCard({ node }: TeamTaskCardProps) {
   return (
     <section className={css.root} data-team-task-card data-task-id={data.taskId}>
       <header className={css.head}>
-        <span className={css.mark}>T</span>
+        <span className={css.mark}><TeamMark size={14} /></span>
         <span className={css.name}>{live?.state.name ?? data.taskName}</span>
         <span className={css.tag}>team-task</span>
       </header>
