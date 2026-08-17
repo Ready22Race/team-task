@@ -221,11 +221,12 @@ export function installScheduler(ctx: Context, config: SchedulerConfig): TaskSch
         }
         if (open !== undefined) continue
 
-        // Auto-claim: prefer nodes pre-assigned to this member, else any
-        // unassigned ready node.
+        // Auto-flow: ONLY nodes the plan pre-routed to this member. The
+        // plan is the routing table — an unassigned ready node waits for
+        // the lead's explicit dispatch, so there is exactly one dispatch
+        // authority per node and the lead never races the scheduler.
         const ready = readyNodes(state)
         const target = ready.find(n => n.assignee === member.name)
-          ?? ready.find(n => n.assignee === undefined)
         if (target === undefined) continue
         try {
           const result = await mutateTask(stateRoot, taskId, (fresh) => {

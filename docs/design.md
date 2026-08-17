@@ -43,6 +43,14 @@ carries the fence it belongs to; stale fences are rejected at append time,
 under the log lock. Reassignment is not a message to the old worker — it is
 the invalidation of its fence.
 
+**A4b — One dispatch authority per node: the plan is the routing table.**
+The scheduler auto-flows a ready node only when the lead pre-assigned it in
+the plan (`assignee`); unassigned nodes wait for an explicit
+`team_task_dispatch`. There is never a moment where the lead and the
+scheduler race to dispatch the same node (the shared-pool auto-claim that
+caused exactly that race in live testing was removed). A rework keeps its
+assignee, so the retry auto-flows back to the same member with the feedback.
+
 **A4 — Delivery is the scheduler's job, not the sender's.**
 `team_task_send` only appends `message_sent` (durable). One scheduler —
 triggered by idle edges, log writes, and the timer — owns all delivery

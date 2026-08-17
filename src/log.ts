@@ -124,6 +124,7 @@ export function applyEvent(state: TeamTaskState, line: LogLine): TeamTaskState {
         updatedAt: at,
         ...line.node.goal === undefined ? {} : { goal: line.node.goal },
         ...line.node.effort === undefined ? {} : { effort: line.node.effort },
+        ...line.node.assignee === undefined ? {} : { assignee: line.node.assignee },
       }
       return { ...state, nodes: [...state.nodes, fresh], seq: line.seq }
     }

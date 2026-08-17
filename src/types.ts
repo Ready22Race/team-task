@@ -123,6 +123,12 @@ export interface NodeSpec {
   dependsOn?: string[]
   autoApprove?: boolean
   effort?: string
+  /**
+   * Pre-routed member. THE PLAN IS THE ROUTING TABLE: the scheduler
+   * auto-flows a ready node only when the lead pre-assigned it here;
+   * an unassigned node always waits for an explicit dispatch.
+   */
+  assignee?: string
 }
 
 /** Events. Stored one JSON object per line as `{seq, ts, ...event}`. */

@@ -97,6 +97,7 @@ interface RawNodeArg {
   depends_on?: string[]
   auto_approve?: boolean
   effort?: string
+  assignee?: string
 }
 
 function nodePatchFromArgs(raw: RawNodeArg): Partial<NodeSpec> & { key: string } {
@@ -107,6 +108,7 @@ function nodePatchFromArgs(raw: RawNodeArg): Partial<NodeSpec> & { key: string }
     ...raw.depends_on === undefined ? {} : { dependsOn: raw.depends_on },
     ...raw.auto_approve === undefined ? {} : { autoApprove: raw.auto_approve },
     ...raw.effort === undefined ? {} : { effort: raw.effort },
+    ...raw.assignee === undefined ? {} : { assignee: raw.assignee },
   }
 }
 
@@ -196,6 +198,7 @@ export function registerTeamTaskTools(
             depends_on: { type: 'array', items: { type: 'string' } },
             auto_approve: { type: 'boolean', description: 'Fast lane for mechanical nodes: a CLAIMED completion settles straight to approved. Judgment nodes must stay false.' },
             effort: { type: 'string', description: 'Reasoning-effort hint for whoever runs this node.' },
+            assignee: { type: 'string', description: 'Pre-route this node to a member: when its dependencies approve, the scheduler auto-flows it to that member. Unassigned nodes wait for explicit team_task_dispatch.' },
           },
         },
       },
@@ -324,6 +327,7 @@ export function registerTeamTaskTools(
             depends_on: { type: 'array', items: { type: 'string' } },
             auto_approve: { type: 'boolean' },
             effort: { type: 'string' },
+            assignee: { type: 'string' },
           },
         },
       },
@@ -340,6 +344,7 @@ export function registerTeamTaskTools(
             depends_on: { type: 'array', items: { type: 'string' } },
             auto_approve: { type: 'boolean' },
             effort: { type: 'string' },
+            assignee: { type: 'string' },
           },
         },
       },
@@ -376,10 +381,10 @@ export function registerTeamTaskTools(
 
   ctx.tools.register(defineTool({
     name: 'team_task_dispatch',
-    description: 'Dispatch one ready node (lead only): bumps its fence and delivers the assignment. assignee "lead" means you execute it yourself inline. Omit assignee to hand it to the shared pool (scheduler auto-claims).',
+    description: 'Dispatch one ready node (lead only): bumps its fence and delivers the assignment. assignee "lead" means you execute it yourself inline. Nodes pre-assigned in the plan auto-flow when unlocked — dispatching one that already flowed is a harmless no-op confirming the assignment.',
     parameters: {
       key: { type: 'string', required: true },
-      assignee: { type: 'string', description: 'Member name, or "lead" to take it yourself; omit for the shared pool.' },
+      assignee: { type: 'string', description: 'Member name, or "lead" to take it yourself.' },
       effort_hint: { type: 'string', description: 'Per-dispatch reasoning-effort hint.' },
     },
     output: {
@@ -390,9 +395,10 @@ export function registerTeamTaskTools(
           key: { type: 'string', required: true },
           fence: { type: 'number', required: true },
           assignee: { type: 'string', required: true },
+          note: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `node ${value.key} dispatched to ${value.assignee} (fence ${value.fence}).` }],
+      render: (_args, value) => [{ type: 'text', text: `node ${value.key} → ${value.assignee} (fence ${value.fence}): ${value.note}` }],
     },
     async execute(args, exec) {
       const lead = requireAgent(exec)
@@ -402,11 +408,37 @@ export function registerTeamTaskTools(
       requireLead(state, lead.id)
       const node = state.nodes.find(n => n.key === args.key)
       if (node === undefined) throw new Error(`no node "${args.key}"`)
+      // Benign-race absorption: the node already flowed (scheduler auto-flow
+      // of a pre-assigned node, or a duplicate call). Same intent → confirm
+      // instead of erroring; a DIFFERENT assignee is a real conflict.
+      if (node.status === 'dispatched' || node.status === 'running') {
+        if (args.assignee === undefined || args.assignee === node.assignee) {
+          return {
+            key: args.key,
+            fence: node.fence,
+            assignee: node.assignee ?? '',
+            note: `already ${node.status} (auto-flowed from the plan); no new dispatch needed`,
+          }
+        }
+        throw new Error(
+          `node "${args.key}" is already ${node.status} with ${node.assignee} — `
+          + 'reassignment is not supported yet; rework after settle instead',
+        )
+      }
       const blocked = unsatisfiedDependencies(state, node)
       if (blocked.length > 0) throw new Error(`node "${args.key}" waits on approval of: ${blocked.join(', ')}`)
       if (args.assignee === undefined) {
-        await scheduler.kickTask(workspace, state.id, lead)
-        return { key: args.key, fence: node.fence, assignee: '(shared pool)' }
+        if (node.assignee !== undefined) {
+          await scheduler.kickTask(workspace, state.id, lead)
+          const fresh = (await readState(stateRoot, state.id))?.nodes.find(n => n.key === args.key)
+          return {
+            key: args.key,
+            fence: fresh?.fence ?? node.fence,
+            assignee: node.assignee,
+            note: fresh?.status === 'pending' ? 'pre-assigned; member busy, flows when idle' : 'flowed to its pre-assigned member',
+          }
+        }
+        throw new Error(`node "${args.key}" has no assignee — name one, or pre-assign it in the plan for auto-flow`)
       }
       if (args.assignee === LEAD_KEY) {
         const { state: next } = await mutateTask(stateRoot, state.id, fresh => [
@@ -416,7 +448,7 @@ export function registerTeamTaskTools(
         await mutateTask(stateRoot, state.id, () => [
           { type: 'run_started', key: args.key, fence: fresh.fence, sessionId: '' },
         ])
-        return { key: args.key, fence: fresh.fence, assignee: LEAD_KEY }
+        return { key: args.key, fence: fresh.fence, assignee: LEAD_KEY, note: 'inline run started; complete it with team_task_complete' }
       }
       const member = state.members.find(m => m.name === args.assignee && m.retired !== true)
       if (member === undefined) throw new Error(`no member "${args.assignee}"`)
@@ -429,7 +461,7 @@ export function registerTeamTaskTools(
       }])
       await scheduler.kickTask(workspace, state.id, lead)
       const fence = next.nodes.find(n => n.key === args.key)?.fence ?? 0
-      return { key: args.key, fence, assignee: member.name }
+      return { key: args.key, fence, assignee: member.name, note: 'dispatched' }
     },
   }))
 
@@ -556,12 +588,15 @@ export function registerTeamTaskTools(
         properties: {
           key: { type: 'string', required: true },
           verdict: { type: 'string', required: true },
-          unlocked: { type: 'array', required: true, items: { type: 'string' } },
+          auto_flowing: { type: 'array', required: true, items: { type: 'string' }, description: 'Unlocked nodes pre-assigned in the plan — the scheduler is already flowing them; do NOT dispatch these.' },
+          needs_dispatch: { type: 'array', required: true, items: { type: 'string' }, description: 'Unlocked nodes with no assignee — dispatch these explicitly.' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `node ${value.key} ${value.verdict}${value.unlocked.length > 0 ? `; unlocked: ${value.unlocked.join(', ')}` : ''}.`,
+        text: `node ${value.key} ${value.verdict}`
+          + `${value.auto_flowing.length > 0 ? `; auto-flowing: ${value.auto_flowing.join(', ')}` : ''}`
+          + `${value.needs_dispatch.length > 0 ? `; needs dispatch: ${value.needs_dispatch.join(', ')}` : ''}.`,
       }],
     },
     async execute(args, exec) {
@@ -580,13 +615,16 @@ export function registerTeamTaskTools(
         ...args.feedback === undefined ? {} : { feedback: args.feedback },
       }])
       const unlocked = args.verdict === 'approve'
-        ? next.nodes
-            .filter(n => n.status === 'pending' && n.dependsOn.includes(args.key)
-              && unsatisfiedDependencies(next, n).length === 0)
-            .map(n => n.key)
+        ? next.nodes.filter(n => n.status === 'pending' && n.dependsOn.includes(args.key)
+            && unsatisfiedDependencies(next, n).length === 0)
         : []
       await scheduler.kickTask(workspace, state.id, lead)
-      return { key: args.key, verdict: args.verdict, unlocked }
+      return {
+        key: args.key,
+        verdict: args.verdict,
+        auto_flowing: unlocked.filter(n => n.assignee !== undefined).map(n => n.key),
+        needs_dispatch: unlocked.filter(n => n.assignee === undefined).map(n => n.key),
+      }
     },
   }))
 

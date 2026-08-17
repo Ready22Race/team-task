@@ -132,6 +132,19 @@ s = await readState(root, T)
 assert.deepEqual(readyNodes(s).map(n => n.key), ['c'], 'approve unlocks c')
 ok('review approve unlocks the chain')
 
+// --- plan routing table (pre-assignment) ------------------------------------
+await mutateTask(root, T, () => [
+  { type: 'node_planned', node: { key: 'r1', title: 'routed', dependsOn: ['b'], assignee: 'worker' } },
+])
+s = await readState(root, T)
+const routed = s.nodes.find(n => n.key === 'r1')
+assert.equal(routed.assignee, 'worker', 'plan carries the routing table')
+assert.equal(routed.status, 'pending')
+assert.deepEqual(readyNodes(s).filter(n => n.assignee === 'worker').map(n => n.key), ['r1'],
+  'pre-assigned ready node is auto-flow eligible')
+await mutateTask(root, T, () => [{ type: 'node_cancelled', key: 'r1' }])
+ok('pre-assigned node: plan is the routing table')
+
 // --- durable messages --------------------------------------------------------
 const msg = createMessage('worker', 'lead', 'b is done, see analysis v2')
 await mutateTask(root, T, () => [{ type: 'message_sent', message: msg }])
